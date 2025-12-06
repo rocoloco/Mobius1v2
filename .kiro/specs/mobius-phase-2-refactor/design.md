@@ -2027,6 +2027,461 @@ async def health_check():
     }, status_code
 ```
 
+## Meta-Learning with Privacy Controls
+
+### Overview
+
+The meta-learning system enables Mobius to improve generation quality over time by learning from user feedback while maintaining strict privacy controls. The system offers three privacy tiers that balance learning effectiveness with data protection, making it suitable for both privacy-conscious enterprises and organizations willing to contribute to industry-wide improvements.
+
+### Privacy Tiers
+
+#### Tier 1: Off (Manual Only)
+- No automated learning
+- All feedback stored but not used for training
+- Suitable for highly regulated industries
+- Manual review and adjustment only
+
+#### Tier 2: Private (Default)
+- Learn from own brand's feedback only
+- Isolated pattern extraction per brand
+- Brand-specific prompt optimization
+- No data sharing with other brands
+- Full data ownership and control
+
+#### Tier 3: Shared (Opt-in)
+- Contribute to anonymized industry patterns
+- Differential privacy noise injection
+- K-anonymity enforcement (minimum 5 brands)
+- Pattern contributor anonymization
+- Aggregate-only storage (no individual brand traces)
+- Network effects with privacy preservation
+
+### Architecture
+
+```mermaid
+graph TB
+    subgraph "Feedback Collection"
+        Feedback[User Feedback]
+        FeedbackDB[(Feedback Table)]
+    end
+    
+    subgraph "Private Learning (Per-Brand)"
+        PrivateExtract[Pattern Extraction]
+        PrivateOptimize[Prompt Optimization]
+        PrivateStore[(Brand Learning Data)]
+    end
+    
+    subgraph "Shared Learning (Opt-in)"
+        Aggregate[Cohort Aggregation]
+        DiffPrivacy[Differential Privacy]
+        KAnonymity[K-Anonymity Check]
+        SharedStore[(Aggregate Patterns)]
+    end
+    
+    subgraph "Transparency"
+        Dashboard[Learning Dashboard]
+        AuditLog[Audit Log]
+        Export[Data Export]
+        Delete[Data Deletion]
+    end
+    
+    Feedback --> FeedbackDB
+    FeedbackDB --> PrivateExtract
+    PrivateExtract --> PrivateOptimize
+    PrivateOptimize --> PrivateStore
+    
+    FeedbackDB --> Aggregate
+    Aggregate --> DiffPrivacy
+    DiffPrivacy --> KAnonymity
+    KAnonymity --> SharedStore
+    
+    PrivateStore --> Dashboard
+    SharedStore --> Dashboard
+    Dashboard --> AuditLog
+    Dashboard --> Export
+    Dashboard --> Delete
+```
+
+### Data Models
+
+#### Learning Privacy Settings (models/learning.py)
+
+```python
+from pydantic import BaseModel
+from enum import Enum
+from typing import List, Optional
+from datetime import datetime
+
+class PrivacyTier(str, Enum):
+    OFF = "off"           # No learning
+    PRIVATE = "private"   # Brand-only learning (default)
+    SHARED = "shared"     # Anonymized industry learning
+
+class LearningSettings(BaseModel):
+    brand_id: str
+    privacy_tier: PrivacyTier = PrivacyTier.PRIVATE
+    consent_date: Optional[datetime] = None
+    consent_version: str = "1.0"
+    data_retention_days: int = 365
+    
+class BrandPattern(BaseModel):
+    pattern_id: str
+    brand_id: str
+    pattern_type: str  # "color_preference", "style_preference", "prompt_optimization"
+    pattern_data: dict
+    confidence_score: float
+    sample_count: int
+    created_at: datetime
+    updated_at: datetime
+
+class IndustryPattern(BaseModel):
+    pattern_id: str
+    cohort: str  # "fashion", "tech", "food", etc.
+    pattern_type: str
+    pattern_data: dict
+    contributor_count: int  # Must be >= 5 for k-anonymity
+    noise_level: float  # Differential privacy noise
+    created_at: datetime
+    updated_at: datetime
+
+class LearningAuditLog(BaseModel):
+    log_id: str
+    brand_id: str
+    action: str  # "pattern_extracted", "prompt_optimized", "data_exported", "data_deleted"
+    details: dict
+    timestamp: datetime
+```
+
+### Database Schema
+
+#### Migration 004: Learning and Privacy
+
+```sql
+-- learning_settings table
+CREATE TABLE learning_settings (
+    brand_id UUID PRIMARY KEY REFERENCES brands(brand_id),
+    privacy_tier VARCHAR(20) NOT NULL DEFAULT 'private' CHECK (privacy_tier IN ('off', 'private', 'shared')),
+    consent_date TIMESTAMPTZ,
+    consent_version VARCHAR(10) NOT NULL DEFAULT '1.0',
+    data_retention_days INT NOT NULL DEFAULT 365,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- brand_patterns table (private learning)
+CREATE TABLE brand_patterns (
+    pattern_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    brand_id UUID NOT NULL REFERENCES brands(brand_id),
+    pattern_type VARCHAR(50) NOT NULL,
+    pattern_data JSONB NOT NULL,
+    confidence_score FLOAT NOT NULL CHECK (confidence_score >= 0 AND confidence_score <= 1),
+    sample_count INT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_brand_patterns_brand ON brand_patterns(brand_id);
+CREATE INDEX idx_brand_patterns_type ON brand_patterns(pattern_type);
+
+-- industry_patterns table (shared learning)
+CREATE TABLE industry_patterns (
+    pattern_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cohort VARCHAR(50) NOT NULL,
+    pattern_type VARCHAR(50) NOT NULL,
+    pattern_data JSONB NOT NULL,
+    contributor_count INT NOT NULL CHECK (contributor_count >= 5),  -- K-anonymity
+    noise_level FLOAT NOT NULL,  -- Differential privacy
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_industry_patterns_cohort ON industry_patterns(cohort);
+CREATE INDEX idx_industry_patterns_type ON industry_patterns(pattern_type);
+
+-- learning_audit_log table
+CREATE TABLE learning_audit_log (
+    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    brand_id UUID NOT NULL REFERENCES brands(brand_id),
+    action VARCHAR(50) NOT NULL,
+    details JSONB,
+    timestamp TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_learning_audit_brand ON learning_audit_log(brand_id);
+CREATE INDEX idx_learning_audit_timestamp ON learning_audit_log(timestamp);
+```
+
+### Components
+
+#### Private Learning Engine (learning/private.py)
+
+```python
+from mobius.models.learning import BrandPattern, LearningSettings, PrivacyTier
+from mobius.storage.database import get_supabase_client
+import structlog
+
+logger = structlog.get_logger()
+
+class PrivateLearningEngine:
+    """Per-brand learning with full data isolation."""
+    
+    def __init__(self):
+        self.client = get_supabase_client()
+    
+    async def extract_patterns(self, brand_id: str) -> List[BrandPattern]:
+        """Extract patterns from brand's feedback history."""
+        logger.info("extracting_private_patterns", brand_id=brand_id)
+        
+        # Check privacy settings
+        settings = await self._get_settings(brand_id)
+        if settings.privacy_tier == PrivacyTier.OFF:
+            logger.info("learning_disabled", brand_id=brand_id)
+            return []
+        
+        # Get feedback data
+        feedback = self.client.table("feedback").select("*").eq("brand_id", brand_id).execute()
+        
+        patterns = []
+        
+        # Extract color preferences
+        color_pattern = self._extract_color_preferences(feedback.data)
+        if color_pattern:
+            patterns.append(color_pattern)
+        
+        # Extract style preferences
+        style_pattern = self._extract_style_preferences(feedback.data)
+        if style_pattern:
+            patterns.append(style_pattern)
+        
+        # Store patterns
+        for pattern in patterns:
+            await self._store_pattern(pattern)
+        
+        # Log action
+        await self._log_action(brand_id, "pattern_extracted", {"pattern_count": len(patterns)})
+        
+        return patterns
+    
+    async def optimize_prompt(self, brand_id: str, base_prompt: str) -> str:
+        """Optimize prompt based on brand's learned patterns."""
+        patterns = await self._get_patterns(brand_id)
+        
+        # Apply learned optimizations
+        optimized = base_prompt
+        for pattern in patterns:
+            if pattern.pattern_type == "prompt_optimization":
+                optimized = self._apply_optimization(optimized, pattern.pattern_data)
+        
+        return optimized
+    
+    async def export_learning_data(self, brand_id: str) -> dict:
+        """Export all learning data for a brand (GDPR compliance)."""
+        patterns = await self._get_patterns(brand_id)
+        audit_log = await self._get_audit_log(brand_id)
+        
+        await self._log_action(brand_id, "data_exported", {})
+        
+        return {
+            "brand_id": brand_id,
+            "patterns": [p.model_dump() for p in patterns],
+            "audit_log": [log.model_dump() for log in audit_log]
+        }
+    
+    async def delete_learning_data(self, brand_id: str) -> bool:
+        """Delete all learning data for a brand (right to deletion)."""
+        logger.info("deleting_learning_data", brand_id=brand_id)
+        
+        # Delete patterns
+        self.client.table("brand_patterns").delete().eq("brand_id", brand_id).execute()
+        
+        # Log deletion
+        await self._log_action(brand_id, "data_deleted", {})
+        
+        return True
+```
+
+#### Shared Learning Engine (learning/shared.py)
+
+```python
+from mobius.models.learning import IndustryPattern, PrivacyTier
+from mobius.storage.database import get_supabase_client
+import numpy as np
+import structlog
+
+logger = structlog.get_logger()
+
+class SharedLearningEngine:
+    """Industry-wide learning with differential privacy."""
+    
+    MIN_CONTRIBUTORS = 5  # K-anonymity threshold
+    NOISE_SCALE = 0.1     # Differential privacy noise
+    
+    def __init__(self):
+        self.client = get_supabase_client()
+    
+    async def aggregate_patterns(self, cohort: str, pattern_type: str) -> Optional[IndustryPattern]:
+        """Aggregate patterns from multiple brands with privacy preservation."""
+        logger.info("aggregating_shared_patterns", cohort=cohort, pattern_type=pattern_type)
+        
+        # Get all brands in cohort with shared learning enabled
+        brands = await self._get_shared_learning_brands(cohort)
+        
+        # K-anonymity check
+        if len(brands) < self.MIN_CONTRIBUTORS:
+            logger.warning("insufficient_contributors", 
+                          cohort=cohort, 
+                          count=len(brands),
+                          required=self.MIN_CONTRIBUTORS)
+            return None
+        
+        # Collect patterns from all contributing brands
+        all_patterns = []
+        for brand_id in brands:
+            patterns = await self._get_brand_patterns(brand_id, pattern_type)
+            all_patterns.extend(patterns)
+        
+        # Aggregate with differential privacy
+        aggregated_data = self._aggregate_with_privacy(all_patterns)
+        
+        # Create industry pattern
+        industry_pattern = IndustryPattern(
+            pattern_id=str(uuid.uuid4()),
+            cohort=cohort,
+            pattern_type=pattern_type,
+            pattern_data=aggregated_data,
+            contributor_count=len(brands),
+            noise_level=self.NOISE_SCALE,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        
+        # Store pattern
+        await self._store_industry_pattern(industry_pattern)
+        
+        return industry_pattern
+    
+    def _aggregate_with_privacy(self, patterns: List[dict]) -> dict:
+        """Apply differential privacy noise to aggregated data."""
+        # Compute aggregate statistics
+        aggregated = self._compute_aggregates(patterns)
+        
+        # Add Laplace noise for differential privacy
+        for key, value in aggregated.items():
+            if isinstance(value, (int, float)):
+                noise = np.random.laplace(0, self.NOISE_SCALE)
+                aggregated[key] = value + noise
+        
+        return aggregated
+    
+    async def _get_shared_learning_brands(self, cohort: str) -> List[str]:
+        """Get brands that opted into shared learning."""
+        result = self.client.table("brands").select("brand_id").eq(
+            "cohort", cohort
+        ).execute()
+        
+        brand_ids = [b["brand_id"] for b in result.data]
+        
+        # Filter by privacy settings
+        shared_brands = []
+        for brand_id in brand_ids:
+            settings = self.client.table("learning_settings").select("*").eq(
+                "brand_id", brand_id
+            ).execute()
+            
+            if settings.data and settings.data[0]["privacy_tier"] == PrivacyTier.SHARED:
+                shared_brands.append(brand_id)
+        
+        return shared_brands
+```
+
+### API Endpoints
+
+#### Learning Management
+
+```
+POST   /v1/brands/{brand_id}/learning/settings    - Update privacy tier and consent
+GET    /v1/brands/{brand_id}/learning/settings    - Get current learning settings
+GET    /v1/brands/{brand_id}/learning/dashboard   - Get learning transparency dashboard
+GET    /v1/brands/{brand_id}/learning/patterns    - Get learned patterns
+POST   /v1/brands/{brand_id}/learning/export      - Export all learning data
+DELETE /v1/brands/{brand_id}/learning/data        - Delete all learning data
+GET    /v1/brands/{brand_id}/learning/audit       - Get audit log
+```
+
+### Learning Transparency Dashboard
+
+The dashboard provides radical transparency about what the system has learned:
+
+```python
+class LearningDashboard(BaseModel):
+    brand_id: str
+    privacy_tier: PrivacyTier
+    patterns_learned: List[dict]  # What patterns were extracted
+    data_sources: str  # "Your brand only" or "5 fashion brands"
+    impact_metrics: dict  # Compliance score improvements
+    audit_log: List[LearningAuditLog]
+    last_updated: datetime
+```
+
+### Legal & Compliance Documentation
+
+#### Data Processing Addendum Template
+
+Provided as part of the system for enterprise sales:
+
+```markdown
+# Data Processing Addendum - Mobius Learning System
+
+## Privacy Tiers
+
+### Private Mode (Default)
+- Data stays within your brand
+- No sharing with other organizations
+- Full data ownership
+- Can export or delete at any time
+
+### Shared Mode (Opt-in)
+- Contributes to anonymized industry patterns
+- Minimum 5 brands required (k-anonymity)
+- Differential privacy noise applied
+- No individual brand traces stored
+- Can opt-out at any time
+
+## Your Rights
+- Right to access learning data
+- Right to export learning data
+- Right to delete learning data
+- Right to opt-out of shared learning
+```
+
+### Testing Strategy
+
+**Property-Based Tests** for learning system:
+
+#### Property 17: Privacy tier enforcement
+
+*For any* brand with privacy_tier set to "off", no patterns should be extracted or stored.
+
+**Validates: Learning privacy controls**
+
+#### Property 18: K-anonymity enforcement
+
+*For any* industry pattern, the contributor_count should be at least 5.
+
+**Validates: Shared learning privacy**
+
+#### Property 19: Data deletion completeness
+
+*For any* brand, after calling delete_learning_data(), querying for patterns should return an empty list.
+
+**Validates: Right to deletion**
+
+#### Property 20: Differential privacy noise
+
+*For any* aggregated industry pattern, the noise_level should be greater than 0.
+
+**Validates: Differential privacy**
+
 ## Future Enhancements
 
 ### Phase 3 Roadmap
