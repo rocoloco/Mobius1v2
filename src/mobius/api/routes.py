@@ -1258,9 +1258,9 @@ async def health_check_handler() -> dict:
     storage_status = "healthy"
     try:
         client = get_supabase_client()
-        # Test storage bucket accessibility
-        client.storage.from_(BRANDS_BUCKET).list(limit=1)
-        client.storage.from_(ASSETS_BUCKET).list(limit=1)
+        # Test storage bucket accessibility (list() doesn't take limit parameter)
+        client.storage.from_(BRANDS_BUCKET).list()
+        client.storage.from_(ASSETS_BUCKET).list()
         logger.debug("storage_check_passed", request_id=request_id)
     except Exception as e:
         storage_status = "unhealthy"

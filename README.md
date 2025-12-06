@@ -1,5 +1,159 @@
 # Mobius Phase 2 - Enterprise Brand Governance Platform
 
+Mobius is an AI-powered brand governance platform that automatically generates, audits, and corrects brand-compliant assets. The only platform with a closed-loop auto-correction system that ensures brand compliance without human intervention.
+
+## Features
+
+- **Multi-Brand Management**: Manage multiple client brands in one dashboard
+- **PDF Ingestion**: Automatically extract brand guidelines from PDFs
+- **Detailed Compliance Scoring**: Get category-level compliance breakdowns
+- **Reusable Templates**: Save successful configurations for quick reuse
+- **Async Job Management**: Background processing with webhook notifications
+- **Learning System**: Learn from feedback with privacy-first architecture
+- **Enterprise-Ready**: Modular architecture, comprehensive testing, API versioning
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- Modal account (https://modal.com)
+- Supabase account (https://supabase.com)
+- API keys for Fal.ai and Google Gemini
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd mobius
+```
+
+2. Install dependencies:
+```bash
+pip install -e ".[dev]"
+```
+
+3. Set up environment variables:
+```bash
+cp .env.example .env
+# Edit .env with your API keys
+```
+
+### Deployment
+
+See [DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md) for detailed deployment instructions.
+
+Quick deployment:
+
+1. Set up Modal:
+```bash
+python scripts/setup_modal.py
+```
+
+2. Set up Supabase:
+```bash
+bash scripts/setup_supabase.sh
+```
+
+3. Deploy:
+```bash
+python scripts/deploy.py
+```
+
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest -v
+
+# Run specific test suite
+pytest tests/unit/ -v
+pytest tests/property/ -v
+pytest tests/integration/ -v
+
+# Run with coverage
+pytest --cov=src/mobius --cov-report=html
+```
+
+### Project Structure
+
+```
+src/mobius/
+├── api/          # API endpoints and routing
+├── graphs/       # LangGraph workflows
+├── models/       # Data models and state definitions
+├── nodes/        # Workflow nodes
+├── storage/      # Database and file storage
+└── tools/        # External service integrations
+```
+
+## Documentation
+
+- [Deployment Guide](docs/DEPLOYMENT-GUIDE.md) - Complete deployment instructions
+- [Deployment Checklist](docs/DEPLOYMENT-CHECKLIST.md) - Step-by-step checklist
+- [Phase 2 Verification](docs/PHASE-2-VERIFICATION.md) - Feature verification
+
+## API Documentation
+
+After deployment, access API docs at:
+```
+https://your-app.modal.run/v1/docs
+```
+
+### Key Endpoints
+
+- `POST /v1/brands/ingest` - Upload brand guidelines PDF
+- `GET /v1/brands` - List all brands
+- `POST /v1/generate` - Generate brand-compliant asset
+- `GET /v1/jobs/{job_id}` - Get job status
+- `POST /v1/templates` - Save template
+- `POST /v1/assets/{asset_id}/feedback` - Submit feedback
+- `GET /v1/health` - Health check
+
+## Architecture
+
+Mobius uses a modular, serverless architecture:
+
+- **Runtime**: Modal (serverless Python)
+- **Database**: Supabase (PostgreSQL)
+- **Storage**: Supabase Storage (CDN)
+- **Orchestration**: LangGraph (state machines)
+- **Image Generation**: Fal.ai (Flux.2)
+- **Visual Audit**: Google Gemini (multimodal AI)
+
+## Testing
+
+Mobius has comprehensive test coverage:
+
+- **Unit Tests**: Test individual components
+- **Property-Based Tests**: Test universal properties with Hypothesis
+- **Integration Tests**: Test end-to-end workflows
+
+Current coverage: >80%
+
+## Contributing
+
+1. Create a feature branch
+2. Make your changes
+3. Run tests: `pytest -v`
+4. Submit a pull request
+
+## License
+
+[Your License Here]
+
+## Support
+
+For issues and questions:
+- GitHub Issues: [Your Repo]
+- Documentation: [Your Docs]
+- Email: [Your Email]
+
+## Mobius Phase 2 - Enterprise Brand Governance Platform
+
 A modular, enterprise-ready platform for AI-powered brand compliance with automated correction workflows.
 
 ## Overview

@@ -15,6 +15,7 @@ app = modal.App("mobius-v2")
 image = (
     modal.Image.debian_slim()
     .pip_install(
+        "fastapi>=0.104.0",  # Required for web endpoints
         "langgraph>=0.0.20",
         "pydantic>=2.0.0",
         "pydantic-settings>=2.0.0",
