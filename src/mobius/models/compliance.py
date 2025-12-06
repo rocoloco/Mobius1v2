@@ -25,6 +25,13 @@ class Violation(BaseModel):
     description: str = Field(description="Detailed description of the violation")
     severity: Severity = Field(description="Severity level of the violation")
     fix_suggestion: str = Field(description="Suggested fix for the violation")
+    
+    @classmethod
+    def model_validate(cls, obj):
+        """Normalize severity to lowercase before validation."""
+        if isinstance(obj, dict) and "severity" in obj:
+            obj["severity"] = obj["severity"].lower()
+        return super().model_validate(obj)
 
 
 class CategoryScore(BaseModel):

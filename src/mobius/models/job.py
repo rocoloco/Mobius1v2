@@ -6,7 +6,7 @@ Defines the structure for async job tracking.
 
 from pydantic import BaseModel, Field, HttpUrl, ConfigDict
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class Job(BaseModel):
@@ -25,10 +25,10 @@ class Job(BaseModel):
         None, max_length=64, description="Client-provided idempotency key"
     )
     error: Optional[str] = Field(None, description="Error message if job failed")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime = Field(
-        default_factory=lambda: datetime.utcnow() + timedelta(hours=24),
+        default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=24),
         description="Job expiration timestamp",
     )
 

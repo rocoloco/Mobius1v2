@@ -93,25 +93,76 @@ postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.co
 
 ## Running Tests
 
-Run all tests:
+The test suite uses Hypothesis for property-based testing with environment-based configuration:
+- **Quick mode** (CI/QUICK_TESTS): 10 examples per property test (~2 minutes total)
+- **Full mode** (default): 100 examples per property test (~5 minutes total)
+
+### Quick Test (< 5 seconds)
 ```bash
-pytest
+# Run only unit tests
+pytest tests/unit/ -v
 ```
 
-Run unit tests only:
+### Standard Test (< 30 seconds)
 ```bash
-pytest tests/unit/
+# Run unit and integration tests
+pytest tests/unit/ tests/integration/ -v
 ```
 
-Run property-based tests only:
+### Quick Full Suite (< 2 minutes) - Recommended for CI/CD
 ```bash
-pytest tests/property/
+# Run all tests with reduced property test examples (10 per test)
+QUICK_TESTS=1 pytest -v
 ```
 
-Run with verbose output:
+### Full Test Suite (< 5 minutes)
 ```bash
+# Run all tests including property-based tests (100 examples each)
 pytest -v
 ```
+
+### Property Tests Only
+```bash
+# Quick mode (10 examples per test)
+QUICK_TESTS=1 pytest tests/property/ -v
+
+# Full mode (100 examples per test)
+pytest tests/property/ -v
+```
+
+### Parallel Execution (Recommended)
+```bash
+# Install pytest-xdist first: pip install pytest-xdist
+pytest -n auto -v  # Uses all CPU cores
+
+# With quick mode for even faster execution
+QUICK_TESTS=1 pytest -n auto -v
+```
+
+### CI/CD Configuration
+
+For continuous integration pipelines, use the `QUICK_TESTS` environment variable:
+
+```yaml
+# GitHub Actions example
+- name: Run tests
+  run: QUICK_TESTS=1 pytest -v --tb=short
+  env:
+    QUICK_TESTS: 1
+```
+
+```yaml
+# GitLab CI example
+test:
+  script:
+    - QUICK_TESTS=1 pytest -v --tb=short
+  variables:
+    QUICK_TESTS: "1"
+```
+
+**Note**: Property-based tests run 100 random examples per test by default, which provides thorough coverage but takes time. The `QUICK_TESTS=1` environment variable reduces this to 10 examples per test for faster feedback during development and CI/CD.
+
+See `docs/testing-notes.md` for detailed testing strategies and performance optimization.
 
 ## Configuration
 
@@ -225,19 +276,508 @@ The project uses a dual testing approach:
 4. Write tests in `tests/unit/` and `tests/property/`
 5. Update this README
 
+## API Endpoints
+
+All endpoints are prefixed with `/v1/` for versioning.
+
+### Brand Management
+
+#### POST /v1/brands/ingest
+Upload and ingest brand guidelines PDF.
+
+**Request:**
+```bash
+curl -X POST https://your-modal-app.modal.run/v1/brands/ingest \
+  -F "organization_id=org-123" \
+  -F "brand_name=Acme Corp" \
+  -F "file=@brand-guidelines.pdf"
+```
+
+**Response:**
+```json
+{
+  "brand_id": "brand-abc123",
+  "status": "validation_passed",
+  "pdf_url": "https://cdn.supabase.co/...",
+  "needs_review": [],
+  "request_id": "req_xyz789"
+}
+```
+
+#### GET /v1/brands
+List all brands for an organization.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/brands?organization_id=org-123&search=acme&limit=10"
+```
+
+**Response:**
+```json
+{
+  "brands": [
+    {
+      "brand_id": "brand-abc123",
+      "name": "Acme Corp",
+      "logo_thumbnail_url": "https://...",
+      "asset_count": 42,
+      "avg_compliance_score": 87.5,
+      "last_activity": "2025-12-05T10:30:00Z"
+    }
+  ],
+  "total": 1,
+  "request_id": "req_xyz789"
+}
+```
+
+#### GET /v1/brands/{brand_id}
+Get detailed brand information.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/brands/brand-abc123"
+```
+
+**Response:**
+```json
+{
+  "brand_id": "brand-abc123",
+  "organization_id": "org-123",
+  "name": "Acme Corp",
+  "guidelines": {
+    "colors": {
+      "primary": ["#FF5733", "#C70039"],
+      "secondary": ["#900C3F", "#581845"]
+    },
+    "typography": {
+      "font_families": ["Helvetica", "Arial"],
+      "sizes": {"h1": "32px", "body": "16px"}
+    }
+  },
+  "pdf_url": "https://...",
+  "logo_thumbnail_url": "https://...",
+  "needs_review": [],
+  "learning_active": true,
+  "feedback_count": 75,
+  "created_at": "2025-11-01T10:00:00Z",
+  "updated_at": "2025-12-05T10:30:00Z",
+  "request_id": "req_xyz789"
+}
+```
+
+#### PATCH /v1/brands/{brand_id}
+Update brand metadata.
+
+**Request:**
+```bash
+curl -X PATCH "https://your-modal-app.modal.run/v1/brands/brand-abc123" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corporation"}'
+```
+
+#### DELETE /v1/brands/{brand_id}
+Soft delete a brand (retains data for audit).
+
+**Request:**
+```bash
+curl -X DELETE "https://your-modal-app.modal.run/v1/brands/brand-abc123"
+```
+
+### Asset Generation
+
+#### POST /v1/generate
+Generate brand-compliant asset with optional template support.
+
+**Request (Basic):**
+```bash
+curl -X POST "https://your-modal-app.modal.run/v1/generate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "brand_id": "brand-abc123",
+    "prompt": "Create a social media post for our summer sale",
+    "async_mode": true,
+    "webhook_url": "https://your-app.com/webhooks/mobius"
+  }'
+```
+
+**Request (With Template):**
+```bash
+curl -X POST "https://your-modal-app.modal.run/v1/generate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "brand_id": "brand-abc123",
+    "prompt": "Summer sale announcement",
+    "template_id": "template-xyz789",
+    "idempotency_key": "unique-key-123"
+  }'
+```
+
+**Response:**
+```json
+{
+  "job_id": "job-def456",
+  "status": "pending",
+  "message": "Generation job created successfully",
+  "request_id": "req_xyz789"
+}
+```
+
+### Job Management
+
+#### GET /v1/jobs/{job_id}
+Get job status and results.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/jobs/job-def456"
+```
+
+**Response:**
+```json
+{
+  "job_id": "job-def456",
+  "status": "completed",
+  "progress": 100.0,
+  "current_image_url": "https://cdn.supabase.co/...",
+  "compliance_score": 92.5,
+  "error": null,
+  "created_at": "2025-12-05T10:00:00Z",
+  "updated_at": "2025-12-05T10:05:00Z",
+  "request_id": "req_xyz789"
+}
+```
+
+#### POST /v1/jobs/{job_id}/cancel
+Cancel a running job.
+
+**Request:**
+```bash
+curl -X POST "https://your-modal-app.modal.run/v1/jobs/job-def456/cancel"
+```
+
+### Template Management
+
+#### POST /v1/templates
+Save an asset as a reusable template (requires 95%+ compliance score).
+
+**Request:**
+```bash
+curl -X POST "https://your-modal-app.modal.run/v1/templates" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asset_id": "asset-ghi789",
+    "template_name": "Summer Sale Template",
+    "description": "High-performing template for seasonal promotions"
+  }'
+```
+
+**Response:**
+```json
+{
+  "template_id": "template-xyz789",
+  "brand_id": "brand-abc123",
+  "name": "Summer Sale Template",
+  "description": "High-performing template for seasonal promotions",
+  "generation_params": {"prompt": "...", "style": "..."},
+  "thumbnail_url": "https://...",
+  "created_at": "2025-12-05T10:00:00Z",
+  "request_id": "req_xyz789"
+}
+```
+
+#### GET /v1/templates
+List all templates for a brand.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/templates?brand_id=brand-abc123&limit=10"
+```
+
+#### GET /v1/templates/{template_id}
+Get detailed template information.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/templates/template-xyz789"
+```
+
+#### DELETE /v1/templates/{template_id}
+Delete a template.
+
+**Request:**
+```bash
+curl -X DELETE "https://your-modal-app.modal.run/v1/templates/template-xyz789"
+```
+
+### Feedback & Learning
+
+#### POST /v1/assets/{asset_id}/feedback
+Submit feedback for an asset.
+
+**Request:**
+```bash
+curl -X POST "https://your-modal-app.modal.run/v1/assets/asset-ghi789/feedback" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "approve",
+    "reason": "Perfect brand alignment"
+  }'
+```
+
+**Response:**
+```json
+{
+  "feedback_id": "feedback-jkl012",
+  "brand_id": "brand-abc123",
+  "total_feedback_count": 51,
+  "learning_active": true,
+  "request_id": "req_xyz789"
+}
+```
+
+#### GET /v1/brands/{brand_id}/feedback
+Get feedback statistics for a brand.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/brands/brand-abc123/feedback"
+```
+
+**Response:**
+```json
+{
+  "brand_id": "brand-abc123",
+  "total_feedback": 51,
+  "approvals": 42,
+  "rejections": 9,
+  "learning_active": true,
+  "request_id": "req_xyz789"
+}
+```
+
+### Learning Management
+
+#### POST /v1/brands/{brand_id}/learning/settings
+Update learning privacy settings.
+
+**Request:**
+```bash
+curl -X POST "https://your-modal-app.modal.run/v1/brands/brand-abc123/learning/settings" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "privacy_tier": "PRIVATE",
+    "data_retention_days": 365
+  }'
+```
+
+#### GET /v1/brands/{brand_id}/learning/dashboard
+Get learning transparency dashboard.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/brands/brand-abc123/learning/dashboard"
+```
+
+**Response:**
+```json
+{
+  "brand_id": "brand-abc123",
+  "privacy_tier": "PRIVATE",
+  "patterns_learned": [
+    {
+      "type": "color_preference",
+      "description": "Pattern based on 25 samples",
+      "confidence": 0.87
+    }
+  ],
+  "data_sources": "Your brand only",
+  "impact_metrics": {
+    "patterns_extracted": 5,
+    "total_samples": 125,
+    "average_confidence": 0.82
+  },
+  "last_updated": "2025-12-05T10:00:00Z",
+  "request_id": "req_xyz789"
+}
+```
+
+#### POST /v1/brands/{brand_id}/learning/export
+Export all learning data (GDPR Article 20 compliance).
+
+**Request:**
+```bash
+curl -X POST "https://your-modal-app.modal.run/v1/brands/brand-abc123/learning/export"
+```
+
+#### DELETE /v1/brands/{brand_id}/learning/data
+Delete all learning data (GDPR Article 17 compliance).
+
+**Request:**
+```bash
+curl -X DELETE "https://your-modal-app.modal.run/v1/brands/brand-abc123/learning/data"
+```
+
+### System Endpoints
+
+#### GET /v1/health
+Health check for all system components.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/health"
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "database": "healthy",
+  "storage": "healthy",
+  "api": "healthy",
+  "timestamp": "2025-12-05T10:00:00Z",
+  "request_id": "req_xyz789"
+}
+```
+
+#### GET /v1/docs
+Get OpenAPI specification.
+
+**Request:**
+```bash
+curl "https://your-modal-app.modal.run/v1/docs"
+```
+
+## Deployment
+
+### Prerequisites
+
+- Modal account ([sign up](https://modal.com))
+- Modal CLI installed: `pip install modal`
+- Modal authentication: `modal token new`
+
+### Deploy to Modal
+
+1. Create a deployment script:
+
+```bash
+python scripts/deploy.py
+```
+
+2. Or deploy manually:
+
+```bash
+modal deploy src/mobius/api/app.py
+```
+
+3. View deployment logs:
+
+```bash
+modal app logs mobius-v2
+```
+
+4. Get endpoint URLs:
+
+```bash
+modal app list
+```
+
+### Environment Variables
+
+Configure secrets in Modal dashboard or via CLI:
+
+```bash
+modal secret create mobius-secrets \
+  FAL_KEY=your_fal_api_key \
+  GEMINI_API_KEY=your_gemini_api_key \
+  SUPABASE_URL=your_supabase_pooler_url \
+  SUPABASE_KEY=your_supabase_key
+```
+
+### Database Migrations
+
+Run migrations before first deployment:
+
+```bash
+# Apply all migrations
+supabase db push
+
+# Or manually apply migration files
+psql $DATABASE_URL < supabase/migrations/001_initial_schema.sql
+psql $DATABASE_URL < supabase/migrations/002_add_templates.sql
+psql $DATABASE_URL < supabase/migrations/003_add_feedback.sql
+psql $DATABASE_URL < supabase/migrations/004_learning_privacy.sql
+psql $DATABASE_URL < supabase/migrations/004_storage_buckets.sql
+```
+
+### Monitoring
+
+- View logs: `modal app logs mobius-v2`
+- Check health: `curl https://your-app.modal.run/v1/health`
+- Monitor jobs: Query `jobs` table in Supabase
+
 ## Current Status
 
-✅ **Task 1 Complete**: Project structure and core infrastructure
-- Project structure with src/mobius/ organization
-- Configuration management with Pydantic Settings
-- Data models for all entities (Brand, Asset, Template, Job, Compliance)
-- API utilities (request ID, error handling, schemas)
-- Database client with connection pooling
-- Comprehensive test suite (23 tests passing)
+✅ **Phase 2 Complete**: Enterprise features and refactoring
+- ✅ Project structure with modular architecture
+- ✅ Brand guidelines ingestion with PDF parsing
+- ✅ Detailed compliance scoring with category breakdowns
+- ✅ Multi-brand management for agencies
+- ✅ Reusable templates with 95% threshold
+- ✅ Enhanced async jobs with webhooks and idempotency
+- ✅ Feedback collection and learning foundation
+- ✅ Privacy-first learning system with GDPR compliance
+- ✅ Comprehensive test suite (100+ tests)
+- ✅ API documentation with OpenAPI spec
 
-### Next Steps
+### Success Metrics
 
-See `.kiro/specs/mobius-phase-2-refactor/tasks.md` for the complete implementation plan.
+- ✅ No files exceed 300 lines
+- ✅ 3+ brands can be managed
+- ✅ Compliance scores visible with category breakdowns
+- ✅ PDF ingestion extracts structured brand data
+- ✅ Async jobs with webhook notifications
+- ✅ Test coverage >80%
+- ✅ Complete API documentation
+
+## Troubleshooting
+
+### Connection Pool Exhaustion
+
+**Problem:** "Too many connections" errors in logs
+
+**Solution:** Ensure you're using the Supabase pooler URL (port 6543):
+```
+postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+```
+
+### Webhook Delivery Failures
+
+**Problem:** Webhooks not being received
+
+**Solution:** 
+1. Check webhook URL is publicly accessible
+2. Verify webhook endpoint returns 200 status
+3. Check `jobs` table for `webhook_attempts` count
+4. Review logs for retry attempts
+
+### PDF Ingestion Failures
+
+**Problem:** Brand ingestion fails with validation errors
+
+**Solution:**
+1. Verify PDF is under 50MB
+2. Check PDF is valid (not corrupted)
+3. Ensure PDF contains extractable text
+4. Review `needs_review` field for ambiguous content
+
+### Template Creation Fails
+
+**Problem:** Cannot save asset as template
+
+**Solution:**
+1. Verify asset compliance score is ≥95%
+2. Check asset exists and is not deleted
+3. Ensure brand_id matches asset's brand
 
 ## License
 

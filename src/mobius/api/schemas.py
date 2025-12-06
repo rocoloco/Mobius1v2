@@ -13,8 +13,8 @@ from datetime import datetime
 class GenerateRequest(BaseModel):
     """Request schema for asset generation."""
 
-    brand_id: str = Field(description="Brand ID to use for generation")
-    prompt: str = Field(description="Generation prompt")
+    brand_id: str = Field(description="Brand ID to use for generation", min_length=1)
+    prompt: str = Field(description="Generation prompt", min_length=1)
     template_id: Optional[str] = Field(None, description="Optional template ID to use")
     webhook_url: Optional[str] = Field(None, description="Webhook URL for async completion")
     async_mode: bool = Field(default=False, description="Whether to run asynchronously")
@@ -226,3 +226,148 @@ class CancelJobResponse(BaseModel):
     status: str
     message: str
     request_id: str
+
+
+# Learning API Schemas
+class UpdateLearningSettingsRequest(BaseModel):
+    """Request schema for updating learning privacy settings."""
+
+    privacy_tier: str = Field(
+        description="Privacy tier: off, private, or shared",
+        pattern="^(off|private|shared)$"
+    )
+    consent_date: Optional[datetime] = Field(
+        None,
+        description="Consent timestamp (auto-set if not provided)"
+    )
+    data_retention_days: Optional[int] = Field(
+        None,
+        description="Data retention period in days",
+        ge=1
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "privacy_tier": "private",
+                "data_retention_days": 365
+            }
+        }
+
+
+class LearningSettingsResponse(BaseModel):
+    """Response schema for learning settings."""
+
+    brand_id: str
+    privacy_tier: str
+    consent_date: Optional[datetime]
+    consent_version: str
+    data_retention_days: int
+    created_at: datetime
+    updated_at: datetime
+    request_id: str
+
+
+class BrandPatternResponse(BaseModel):
+    """Response schema for brand pattern."""
+
+    pattern_id: str
+    brand_id: str
+    pattern_type: str
+    pattern_data: Dict[str, Any]
+    confidence_score: float
+    sample_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class LearningPatternsResponse(BaseModel):
+    """Response schema for learned patterns."""
+
+    brand_id: str
+    patterns: List[BrandPatternResponse]
+    total: int
+    request_id: str
+
+
+class LearningDashboardResponse(BaseModel):
+    """Response schema for learning transparency dashboard."""
+
+    brand_id: str
+    privacy_tier: str
+    patterns_learned: List[Dict[str, Any]]
+    data_sources: str
+    impact_metrics: Dict[str, Any]
+    last_updated: datetime
+    request_id: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "brand_id": "brand-123",
+                "privacy_tier": "private",
+                "patterns_learned": [
+                    {
+                        "type": "color_preference",
+                        "description": "Warm colors preferred",
+                        "confidence": 0.85
+                    }
+                ],
+                "data_sources": "Your brand only",
+                "impact_metrics": {
+                    "compliance_improvement": 12.5,
+                    "approval_rate_increase": 8.3
+                },
+                "last_updated": "2025-12-05T10:30:00Z",
+                "request_id": "req_xyz789"
+            }
+        }
+
+
+class LearningAuditLogEntry(BaseModel):
+    """Audit log entry."""
+
+    log_id: str
+    action: str
+    details: Dict[str, Any]
+    timestamp: datetime
+
+
+class LearningAuditLogResponse(BaseModel):
+    """Response schema for learning audit log."""
+
+    brand_id: str
+    entries: List[LearningAuditLogEntry]
+    total: int
+    request_id: str
+
+
+class ExportLearningDataResponse(BaseModel):
+    """Response schema for learning data export."""
+
+    brand_id: str
+    export_date: datetime
+    settings: Optional[Dict[str, Any]]
+    patterns: List[Dict[str, Any]]
+    audit_log: List[Dict[str, Any]]
+    metadata: Dict[str, Any]
+    request_id: str
+
+
+class DeleteLearningDataResponse(BaseModel):
+    """Response schema for learning data deletion."""
+
+    brand_id: str
+    deleted: bool
+    message: str
+    request_id: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "brand_id": "brand-123",
+                "deleted": True,
+                "message": "All learning data has been permanently deleted",
+                "request_id": "req_abc123"
+            }
+        }

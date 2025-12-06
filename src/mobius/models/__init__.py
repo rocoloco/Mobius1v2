@@ -11,7 +11,15 @@ This package contains:
 """
 
 from .state import JobState, IngestionState
-from .brand import Brand, BrandGuidelines, BrandColors, BrandTypography, BrandLogo
+from .brand import (
+    Brand,
+    BrandGuidelines,
+    Color,
+    Typography,
+    LogoRule,
+    VoiceTone,
+    BrandRule,
+)
 from .compliance import ComplianceScore, CategoryScore, Violation, Severity
 from .asset import Asset
 from .template import Template
@@ -22,9 +30,11 @@ __all__ = [
     "IngestionState",
     "Brand",
     "BrandGuidelines",
-    "BrandColors",
-    "BrandTypography",
-    "BrandLogo",
+    "Color",
+    "Typography",
+    "LogoRule",
+    "VoiceTone",
+    "BrandRule",
     "ComplianceScore",
     "CategoryScore",
     "Violation",
