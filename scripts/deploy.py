@@ -120,7 +120,6 @@ def check_environment_variables() -> bool:
     print_info("Checking environment variables...")
     
     required_vars = [
-        "FAL_KEY",
         "GEMINI_API_KEY",
         "SUPABASE_URL",
         "SUPABASE_KEY",
@@ -159,7 +158,7 @@ def check_modal_secrets() -> bool:
             return True
         else:
             print_warning("Modal secret 'mobius-secrets' not found")
-            print_info("Create with: modal secret create mobius-secrets FAL_KEY=... GEMINI_API_KEY=... ...")
+            print_info("Create with: modal secret create mobius-secrets GEMINI_API_KEY=... SUPABASE_URL=... SUPABASE_KEY=...")
             return False
     except Exception as e:
         print_error(f"Failed to check Modal secrets: {e}")

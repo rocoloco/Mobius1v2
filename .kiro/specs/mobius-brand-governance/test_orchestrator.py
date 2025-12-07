@@ -47,7 +47,7 @@ def job_state_strategy(draw, with_image_url=False, with_audit_history=False):
     # Generate image URL if requested
     if with_image_url:
         current_image_url = draw(st.from_regex(
-            r"https://fal\.media/files/[a-zA-Z0-9_-]+",
+            r"https://generativelanguage\.googleapis\.com/v1beta/files/[a-zA-Z0-9_-]+",
             fullmatch=True
         ))
     else:
@@ -98,11 +98,11 @@ def test_property_1_generation_produces_image_url(state):
     
     **Validates: Requirements 1.2**
     """
-    # Mock the fal_client.subscribe to return a successful result
-    with patch("orchestrator.fal_client.subscribe") as mock_subscribe:
-        mock_subscribe.return_value = {
-            "images": [{"url": "https://fal.media/files/test-image-123"}]
-        }
+    # Mock the Gemini API to return a successful result
+    with patch("orchestrator.genai.Client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.text = "https://generativelanguage.googleapis.com/v1beta/files/test-image-123"
+        mock_client.return_value.models.generate_content.return_value = mock_response
         
         # Execute the generation node
         result_state = generate_node(state)
@@ -125,11 +125,11 @@ def test_property_8_attempt_count_monotonically_increases(state):
     
     **Validates: Requirements 1.2**
     """
-    # Mock the fal_client.subscribe to return a successful result
-    with patch("orchestrator.fal_client.subscribe") as mock_subscribe:
-        mock_subscribe.return_value = {
-            "images": [{"url": "https://fal.media/files/test-image-456"}]
-        }
+    # Mock the Gemini API to return a successful result
+    with patch("orchestrator.genai.Client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.text = "https://generativelanguage.googleapis.com/v1beta/files/test-image-456"
+        mock_client.return_value.models.generate_content.return_value = mock_response
         
         # Store original attempt count
         original_attempt_count = state["attempt_count"]
@@ -152,9 +152,9 @@ def test_property_8_attempt_count_increases_even_on_error(state):
     
     **Validates: Requirements 1.2**
     """
-    # Mock the fal_client.subscribe to raise an exception
-    with patch("orchestrator.fal_client.subscribe") as mock_subscribe:
-        mock_subscribe.side_effect = Exception("API Error: Service unavailable")
+    # Mock the Gemini API to raise an exception
+    with patch("orchestrator.genai.Client") as mock_client:
+        mock_client.return_value.models.generate_content.side_effect = Exception("API Error: Service unavailable")
         
         # Store original attempt count
         original_attempt_count = state["attempt_count"]
@@ -463,18 +463,18 @@ def test_http_endpoint_successful_workflow_completion():
     )
     
     # Mock the workflow execution to return an approved state
-    with patch("orchestrator.fal_client.subscribe") as mock_fal, \
-         patch("orchestrator.genai.Client") as mock_gemini:
+    with patch("orchestrator.genai.Client") as mock_gemini:
         
-        # Mock successful image generation
-        mock_fal.return_value = {
-            "images": [{"url": "https://fal.media/files/approved-image-123"}]
-        }
+        # Mock successful image generation and audit
+        mock_gen_response = MagicMock()
+        mock_gen_response.text = "https://generativelanguage.googleapis.com/v1beta/files/approved-image-123"
         
         # Mock audit that approves on first attempt
-        mock_response = MagicMock()
-        mock_response.text = '{"approved": true, "reason": "Complies with all brand guidelines", "fix_suggestion": ""}'
-        mock_gemini.return_value.models.generate_content.return_value = mock_response
+        mock_audit_response = MagicMock()
+        mock_audit_response.text = '{"approved": true, "reason": "Complies with all brand guidelines", "fix_suggestion": ""}'
+        
+        # Configure mock to return different responses for generation and audit
+        mock_gemini.return_value.models.generate_content.side_effect = [mock_gen_response, mock_audit_response]
         
         # Execute the endpoint implementation directly
         result = _run_mobius_job_impl(request)
@@ -500,18 +500,22 @@ def test_http_endpoint_max_retries():
     )
     
     # Mock the workflow execution to reject all attempts
-    with patch("orchestrator.fal_client.subscribe") as mock_fal, \
-         patch("orchestrator.genai.Client") as mock_gemini:
+    with patch("orchestrator.genai.Client") as mock_gemini:
         
         # Mock successful image generation
-        mock_fal.return_value = {
-            "images": [{"url": "https://fal.media/files/rejected-image-456"}]
-        }
+        mock_gen_response = MagicMock()
+        mock_gen_response.text = "https://generativelanguage.googleapis.com/v1beta/files/rejected-image-456"
         
         # Mock audit that always rejects
-        mock_response = MagicMock()
-        mock_response.text = '{"approved": false, "reason": "Does not comply with brand guidelines", "fix_suggestion": "use more geometric shapes"}'
-        mock_gemini.return_value.models.generate_content.return_value = mock_response
+        mock_audit_response = MagicMock()
+        mock_audit_response.text = '{"approved": false, "reason": "Does not comply with brand guidelines", "fix_suggestion": "use more geometric shapes"}'
+        
+        # Configure mock to alternate between generation and audit responses
+        mock_gemini.return_value.models.generate_content.side_effect = [
+            mock_gen_response, mock_audit_response,  # Attempt 1
+            mock_gen_response, mock_audit_response,  # Attempt 2
+            mock_gen_response, mock_audit_response,  # Attempt 3
+        ]
         
         # Execute the endpoint implementation directly
         result = _run_mobius_job_impl(request)

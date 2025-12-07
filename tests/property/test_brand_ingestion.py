@@ -27,15 +27,16 @@ import uuid
 # Strategies for generating valid brand data
 @st.composite
 def color_strategy(draw):
-    """Generate a valid Color object."""
+    """Generate a valid Color object with semantic design tokens."""
     name = draw(st.text(min_size=1, max_size=50, alphabet=st.characters(whitelist_categories=("L",))))
     hex_code = draw(
         st.text(min_size=7, max_size=7, alphabet="0123456789ABCDEF").map(lambda x: f"#{x}")
     )
-    usage = draw(st.sampled_from(["primary", "secondary", "accent", "background"]))
+    usage = draw(st.sampled_from(["primary", "secondary", "accent", "neutral", "semantic"]))
+    usage_weight = draw(st.floats(min_value=0.0, max_value=1.0))
     context = draw(st.one_of(st.none(), st.text(min_size=1, max_size=100)))
 
-    return Color(name=name, hex=hex_code, usage=usage, context=context)
+    return Color(name=name, hex=hex_code, usage=usage, usage_weight=usage_weight, context=context)
 
 
 @st.composite
@@ -126,9 +127,11 @@ def test_brand_guidelines_always_valid(guidelines):
     # Should have at least one color
     assert len(guidelines.colors) >= 1
 
-    # All colors should have valid usage enums
+    # All colors should have valid semantic roles
     for color in guidelines.colors:
-        assert color.usage in ["primary", "secondary", "accent", "background"]
+        assert color.usage in ["primary", "secondary", "accent", "neutral", "semantic"]
+        # usage_weight should be between 0.0 and 1.0
+        assert 0.0 <= color.usage_weight <= 1.0
 
     # All rules should have valid category and severity enums
     for rule in guidelines.rules:
@@ -198,15 +201,15 @@ def test_positive_constraint_detection(base_text):
 
 def test_color_usage_enum_validation():
     """
-    Property 1 (enum validation): Color usage must be valid enum value.
+    Property 1 (enum validation): Color usage must be valid semantic role.
 
-    For any Color object, the usage field must be one of the valid enum values.
+    For any Color object, the usage field must be one of the valid semantic roles.
     Invalid values should raise ValidationError.
 
     **Validates: Requirements 2.3**
     """
-    # Valid usage values should work
-    valid_usages = ["primary", "secondary", "accent", "background"]
+    # Valid usage values should work (updated for semantic design tokens)
+    valid_usages = ["primary", "secondary", "accent", "neutral", "semantic"]
     for usage in valid_usages:
         color = Color(name="Test", hex="#FF0000", usage=usage)
         assert color.usage == usage
@@ -214,6 +217,10 @@ def test_color_usage_enum_validation():
     # Invalid usage value should raise ValidationError
     with pytest.raises(ValidationError):
         Color(name="Test", hex="#FF0000", usage="invalid_usage")
+    
+    # Old "background" value should now fail (replaced by "neutral")
+    with pytest.raises(ValidationError):
+        Color(name="Test", hex="#FF0000", usage="background")
 
 
 def test_brand_rule_category_enum_validation():

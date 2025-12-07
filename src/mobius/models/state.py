@@ -40,5 +40,6 @@ class IngestionState(TypedDict):
     extracted_colors: List[str]
     extracted_fonts: List[str]
     extracted_rules: List[str]
+    compressed_twin: Optional[Any]  # CompressedDigitalTwin - using Any to avoid circular import
     needs_review: List[str]
     status: str  # "uploading", "extracting_text", "extracting_visual", "structuring", "completed", "failed"

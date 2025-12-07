@@ -73,7 +73,7 @@ def fastapi_app():
         else:
             health_status["database"] = "not_configured"
             
-        if os.getenv("FAL_KEY") and os.getenv("GEMINI_API_KEY"):
+        if os.getenv("GEMINI_API_KEY"):
             health_status["services"] = "configured"
         else:
             health_status["services"] = "not_configured"

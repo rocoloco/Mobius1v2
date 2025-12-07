@@ -54,6 +54,56 @@ class FileStorage:
             logger.error("pdf_upload_failed", brand_id=brand_id, error=str(e))
             raise
 
+    async def upload_logo(self, file: bytes, brand_id: str, filename: str = "logo.png") -> str:
+        """
+        Upload brand logo image to Supabase Storage.
+        
+        Uses the assets bucket since brands bucket is configured for PDFs only.
+
+        Args:
+            file: Image file bytes (PNG format)
+            brand_id: UUID of the brand
+            filename: Name of the file (default: logo.png)
+
+        Returns:
+            Public CDN URL for the uploaded file
+
+        Raises:
+            Exception: If upload fails
+        """
+        logger.info("uploading_logo", brand_id=brand_id, size_bytes=len(file))
+
+        # Use assets bucket for images (brands bucket is PDF-only)
+        path = f"logos/{brand_id}/{filename}"
+
+        try:
+            # Determine content type from filename
+            content_type = "image/png"
+            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
+                content_type = "image/jpeg"
+            elif filename.lower().endswith(".webp"):
+                content_type = "image/webp"
+            
+            # Upload to assets bucket (accepts images)
+            result = self.client.storage.from_(ASSETS_BUCKET).upload(
+                path, 
+                file,
+                {
+                    "content-type": content_type,
+                    "upsert": "true"  # Allow overwriting if file exists
+                }
+            )
+
+            # Get public URL
+            url = self.client.storage.from_(ASSETS_BUCKET).get_public_url(path)
+
+            logger.info("logo_uploaded", brand_id=brand_id, url=url, content_type=content_type, bucket=ASSETS_BUCKET)
+            return url
+
+        except Exception as e:
+            logger.error("logo_upload_failed", brand_id=brand_id, error=str(e))
+            raise
+
     async def upload_image(
         self, image_url: str, asset_id: str, filename: str = "image.png"
     ) -> str:

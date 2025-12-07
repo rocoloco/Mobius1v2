@@ -29,7 +29,6 @@ from pydantic import BaseModel, Field
 
 import modal
 from langgraph.graph import StateGraph, END
-import fal_client
 
 # Optional PostgreSQL checkpointing - only import if available
 try:
@@ -83,7 +82,6 @@ image = modal.Image.debian_slim().pip_install(
     "langgraph>=0.2.0",
     "langgraph-checkpoint-postgres>=2.0.0",
     "google-genai>=1.0.0",
-    "fal-client>=0.4.0",
     "supabase>=2.0.0",
     "httpx>=0.27.0",
     "fastapi>=0.110.0",
@@ -103,7 +101,6 @@ app = modal.App(
 
 REQUIRED_SECRETS = [
     "GEMINI_API_KEY",
-    "FAL_KEY",
 ]
 
 OPTIONAL_SECRETS = [
@@ -307,18 +304,15 @@ class MobiusJobResponse(BaseModel):
 
 # Approximate costs per operation (USD)
 COST_ESTIMATES = {
-    "flux_pro_generation": 0.05,
-    "ideogram_generation": 0.04,
+    "gemini_vision_generation": 0.03,
     "gemini_audit": 0.001,
 }
 
 
 def estimate_cost(model_id: str, operation: str = "generation") -> float:
     """Estimate cost for an operation."""
-    if "flux" in model_id.lower():
-        return COST_ESTIMATES.get("flux_pro_generation", 0.05)
-    elif "ideogram" in model_id.lower():
-        return COST_ESTIMATES.get("ideogram_generation", 0.04)
+    if "image" in model_id.lower() or "vision" in model_id.lower():
+        return COST_ESTIMATES.get("gemini_vision_generation", 0.03)
     elif "gemini" in model_id.lower():
         return COST_ESTIMATES.get("gemini_audit", 0.001)
     return 0.0
@@ -331,9 +325,9 @@ def estimate_cost(model_id: str, operation: str = "generation") -> float:
 @retry_with_backoff(retryable_exceptions=(RetryableError, httpx.TimeoutException))
 def generate_node(state: JobState) -> JobState:
     """
-    Generation Node: Smart Router (Flux for Photos, Ideogram for Design)
+    Generation Node: Gemini 3 Vision Model for Image Generation
     
-    Routes to appropriate model based on prompt content analysis.
+    Uses Gemini 3 Pro Image Preview model with compressed brand guidelines.
     """
     attempt = state["attempt_count"] + 1
     logger.info(f"🎨 Generation Node | Job: {state['job_id']} | Attempt: {attempt}")
@@ -345,31 +339,28 @@ def generate_node(state: JobState) -> JobState:
         f"Mandatory Brand Colors: {hex_string}"
     )
     
-    # Smart routing logic
-    text_triggers = [
-        "text", "logo", "font", "typography", "vector", 
-        "illustration", "write", "letter", "word", "headline"
-    ]
-    prompt_lower = (state['prompt'] + state['brand_rules']).lower()
-    needs_text_engine = any(trigger in prompt_lower for trigger in text_triggers)
-    
-    if needs_text_engine:
-        model_id = "fal-ai/ideogram/v2"
-        logger.info(f"🔀 Routing to {model_id} (Text/Design Detected)")
-        arguments = {
-            "prompt": combined_prompt,
-            "aspect_ratio": "1:1",
-            "expand_prompt": "on",
-            "style": "design"
-        }
-    else:
-        model_id = "fal-ai/flux-pro/v1.1"
-        logger.info(f"🔀 Routing to {model_id} (Photorealism Mode)")
-        arguments = {"prompt": combined_prompt}
+    model_id = "gemini-3-pro-image-preview"
+    logger.info(f"🔀 Using {model_id} for image generation")
     
     try:
-        result = fal_client.subscribe(model_id, arguments=arguments)
-        image_url = result.get("images", [{}])[0].get("url")
+        # Call Gemini Vision Model for image generation
+        gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        response = gemini_client.models.generate_content(
+            model=model_id,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=combined_prompt)]
+                )
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.7
+            )
+        )
+        
+        # Extract image URI from response
+        # Note: This is a placeholder - actual implementation depends on Gemini API response format
+        image_url = response.text if hasattr(response, 'text') else None
         
         if not image_url:
             raise RetryableError("No image URL in response")

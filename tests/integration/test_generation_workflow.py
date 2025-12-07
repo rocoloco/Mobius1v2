@@ -7,14 +7,79 @@ scoring, correction loops, and approval logic.
 
 import pytest
 from datetime import datetime
+from unittest.mock import AsyncMock, patch, MagicMock
 from mobius.models.state import JobState
 from mobius.nodes.audit import audit_node, calculate_overall_score
 from mobius.graphs.generation import route_after_audit
-from mobius.models.compliance import CategoryScore
+from mobius.models.compliance import CategoryScore, ComplianceScore, Violation, Severity
+from mobius.models.brand import Brand, BrandGuidelines, Color, Typography
+
+
+@pytest.fixture
+def mock_brand():
+    """Create a mock brand with guidelines for testing."""
+    guidelines = BrandGuidelines(
+        colors=[
+            Color(name="Red", hex="#FF0000", usage="primary", usage_weight=0.5),
+            Color(name="Green", hex="#00FF00", usage="secondary", usage_weight=0.3),
+            Color(name="Blue", hex="#0000FF", usage="accent", usage_weight=0.2),
+        ],
+        typography=[
+            Typography(
+                family="Helvetica Neue",
+                weights=["regular", "bold"],
+                usage="headings"
+            )
+        ],
+        logos=[],
+        voice=None,
+        rules=[]
+    )
+    
+    return Brand(
+        brand_id="test-brand-001",
+        organization_id="test-org-001",
+        name="Test Brand",
+        website="https://example.com",
+        guidelines=guidelines,
+        compressed_twin=None,
+        created_at=datetime.now().isoformat(),
+        updated_at=datetime.now().isoformat(),
+        deleted_at=None,
+        pdf_url=None,
+        logo_thumbnail_url=None,
+        needs_review=[],
+        learning_active=False,
+        feedback_count=0
+    )
+
+
+@pytest.fixture
+def mock_compliance_score():
+    """Create a mock compliance score for testing."""
+    return ComplianceScore(
+        overall_score=85.0,
+        categories=[
+            CategoryScore(
+                category="colors",
+                score=90.0,
+                passed=True,
+                violations=[]
+            ),
+            CategoryScore(
+                category="typography",
+                score=80.0,
+                passed=True,
+                violations=[]
+            )
+        ],
+        approved=True,
+        summary="Image complies with brand guidelines"
+    )
 
 
 @pytest.mark.asyncio
-async def test_complete_workflow_with_compliance_scoring():
+async def test_complete_workflow_with_compliance_scoring(mock_brand, mock_compliance_score):
     """
     Test complete workflow with compliance scoring.
     
@@ -40,8 +105,20 @@ async def test_complete_workflow_with_compliance_scoring():
         generation_params=None
     )
     
-    # Run audit node
-    result = await audit_node(state)
+    # Mock BrandStorage.get_brand to return mock brand
+    with patch('mobius.nodes.audit.BrandStorage') as mock_storage_class:
+        mock_storage = AsyncMock()
+        mock_storage.get_brand = AsyncMock(return_value=mock_brand)
+        mock_storage_class.return_value = mock_storage
+        
+        # Mock GeminiClient.audit_compliance to return mock compliance score
+        with patch('mobius.nodes.audit.GeminiClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.audit_compliance = AsyncMock(return_value=mock_compliance_score)
+            mock_client_class.return_value = mock_client
+            
+            # Run audit node
+            result = await audit_node(state)
     
     # Verify audit results are added to state
     assert "audit_history" in result
@@ -215,7 +292,7 @@ def test_category_score_calculation():
 
 
 @pytest.mark.asyncio
-async def test_audit_returns_valid_structure():
+async def test_audit_returns_valid_structure(mock_brand, mock_compliance_score):
     """
     Test that audit node returns valid structure.
     
@@ -244,8 +321,20 @@ async def test_audit_returns_valid_structure():
         generation_params=None
     )
     
-    # Run audit node
-    result = await audit_node(state)
+    # Mock BrandStorage.get_brand to return mock brand
+    with patch('mobius.nodes.audit.BrandStorage') as mock_storage_class:
+        mock_storage = AsyncMock()
+        mock_storage.get_brand = AsyncMock(return_value=mock_brand)
+        mock_storage_class.return_value = mock_storage
+        
+        # Mock GeminiClient.audit_compliance to return mock compliance score
+        with patch('mobius.nodes.audit.GeminiClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.audit_compliance = AsyncMock(return_value=mock_compliance_score)
+            mock_client_class.return_value = mock_client
+            
+            # Run audit node
+            result = await audit_node(state)
     
     # Should return valid structure
     assert "audit_history" in result

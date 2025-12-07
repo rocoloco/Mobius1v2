@@ -34,7 +34,8 @@ class BrandStorage:
         """
         logger.info("creating_brand", brand_id=brand.brand_id, name=brand.name)
 
-        data = brand.model_dump()
+        # Exclude None values and fields not in database schema
+        data = brand.model_dump(exclude_none=True, exclude={'website'})
         result = self.client.table("brands").insert(data).execute()
 
         logger.info("brand_created", brand_id=brand.brand_id)

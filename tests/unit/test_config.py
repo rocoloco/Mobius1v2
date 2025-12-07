@@ -13,20 +13,17 @@ from mobius.config import Settings
 def test_settings_loads_from_env():
     """Test that Settings loads values from environment variables."""
     # Set test environment variables
-    os.environ["FAL_API_KEY"] = "test_fal_key"
     os.environ["GEMINI_API_KEY"] = "test_gemini_key"
     os.environ["SUPABASE_URL"] = "https://test.supabase.co"
     os.environ["SUPABASE_KEY"] = "test_key"
 
     settings = Settings()
 
-    assert settings.fal_api_key == "test_fal_key"
     assert settings.gemini_api_key == "test_gemini_key"
     assert settings.supabase_url == "https://test.supabase.co"
     assert settings.supabase_key == "test_key"
 
     # Clean up
-    del os.environ["FAL_API_KEY"]
     del os.environ["GEMINI_API_KEY"]
     del os.environ["SUPABASE_URL"]
     del os.environ["SUPABASE_KEY"]
@@ -34,6 +31,7 @@ def test_settings_loads_from_env():
 
 def test_settings_default_values():
     """Test that Settings has correct default values."""
+    os.environ["GEMINI_API_KEY"] = "test_key"
     settings = Settings()
 
     assert settings.max_generation_attempts == 3
@@ -43,6 +41,11 @@ def test_settings_default_values():
     assert settings.webhook_retry_max == 5
     assert settings.brands_bucket == "brands"
     assert settings.assets_bucket == "assets"
+    assert settings.reasoning_model == "gemini-3-pro-preview"
+    assert settings.vision_model == "gemini-3-pro-image-preview"
+    
+    # Clean up
+    del os.environ["GEMINI_API_KEY"]
 
 
 def test_pooler_url_validation_warns_on_direct_connection():
@@ -52,7 +55,11 @@ def test_pooler_url_validation_warns_on_direct_connection():
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        settings = Settings(supabase_url=direct_url, supabase_key="test")
+        settings = Settings(
+            gemini_api_key="test_key",
+            supabase_url=direct_url,
+            supabase_key="test"
+        )
 
         # Should have issued a warning
         assert len(w) == 1
@@ -69,7 +76,11 @@ def test_pooler_url_validation_no_warning_with_pooler():
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        settings = Settings(supabase_url=pooler_url, supabase_key="test")
+        settings = Settings(
+            gemini_api_key="test_key",
+            supabase_url=pooler_url,
+            supabase_key="test"
+        )
 
         # Should not have issued a warning
         assert len(w) == 0
@@ -82,7 +93,11 @@ def test_pooler_url_validation_no_warning_with_port_6543():
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        settings = Settings(supabase_url=url_with_6543, supabase_key="test")
+        settings = Settings(
+            gemini_api_key="test_key",
+            supabase_url=url_with_6543,
+            supabase_key="test"
+        )
 
         # Should not have issued a warning
         assert len(w) == 0
@@ -90,11 +105,48 @@ def test_pooler_url_validation_no_warning_with_port_6543():
 
 def test_settings_case_insensitive():
     """Test that Settings accepts case-insensitive environment variables."""
-    os.environ["fal_api_key"] = "test_key_lowercase"
+    os.environ["gemini_api_key"] = "test_key_lowercase"
 
     settings = Settings()
 
-    assert settings.fal_api_key == "test_key_lowercase"
+    assert settings.gemini_api_key == "test_key_lowercase"
 
     # Clean up
-    del os.environ["fal_api_key"]
+    del os.environ["gemini_api_key"]
+
+
+def test_gemini_api_key_validation():
+    """Test that Settings validates gemini_api_key presence."""
+    from pydantic import ValidationError
+    
+    # Empty key should raise ValidationError
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            gemini_api_key="",
+            supabase_url="https://test.supabase.co",
+            supabase_key="test_key"
+        )
+    
+    assert "gemini_api_key" in str(exc_info.value).lower()
+    
+    # Whitespace-only key should raise ValidationError
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            gemini_api_key="   ",
+            supabase_url="https://test.supabase.co",
+            supabase_key="test_key"
+        )
+    
+    assert "gemini_api_key" in str(exc_info.value).lower()
+
+
+def test_model_constants():
+    """Test that model constants are properly defined."""
+    os.environ["GEMINI_API_KEY"] = "test_key"
+    settings = Settings()
+    
+    assert settings.reasoning_model == "gemini-3-pro-preview"
+    assert settings.vision_model == "gemini-3-pro-image-preview"
+    
+    # Clean up
+    del os.environ["GEMINI_API_KEY"]

@@ -8,7 +8,7 @@ within Modal's free tier limit of 8 endpoints.
 import modal
 
 # Define Modal app
-app = modal.App("mobius-v2")
+app = modal.App("mobius-v2-final")
 
 # Define image with all dependencies
 from pathlib import Path
@@ -22,20 +22,21 @@ image = (
     modal.Image.debian_slim()
     .pip_install(
         "fastapi>=0.104.0",
+        "python-multipart>=0.0.6",
         "langgraph>=0.0.20",
         "pydantic>=2.0.0",
         "pydantic-settings>=2.0.0",
         "supabase>=2.0.0",
         "google-generativeai>=0.3.0",
         "pdfplumber>=0.10.0",
+        "PyMuPDF>=1.23.0",
+        "Pillow>=10.0.0",
         "httpx>=0.25.0",
         "structlog>=23.0.0",
         "tenacity>=8.2.0",
         "hypothesis>=6.0.0",
     )
-    .add_local_file(str(project_root / "pyproject.toml"), "/tmp/mobius-install/pyproject.toml", copy=True)
-    .add_local_dir(str(project_root / "src"), "/tmp/mobius-install/src", copy=True)
-    .run_commands("pip install /tmp/mobius-install")
+    .add_local_dir(str(project_root / "src"), "/root/mobius-src", copy=True)
 )
 
 # Define secrets
@@ -48,10 +49,23 @@ secrets = [modal.Secret.from_name("mobius-secrets")]
 def fastapi_app():
     """Main ASGI app with all routes."""
     
+    import sys
+    sys.path.insert(0, "/root/mobius-src")
+    
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
+    from fastapi.middleware.cors import CORSMiddleware
     
     web_app = FastAPI(title="Mobius API", version="2.0.0")
+    
+    # CORS middleware - allow all origins for testing phase
+    web_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     
     # Brand Management Routes
     
@@ -59,21 +73,118 @@ def fastapi_app():
     async def ingest_brand(request: Request):
         """Upload and ingest brand guidelines PDF."""
         from mobius.api.routes import ingest_brand_handler
-        from mobius.api.errors import MobiusError
+        from mobius.api.errors import MobiusError, ValidationError
+        from fastapi import UploadFile, File, Form
         import structlog
         
         logger = structlog.get_logger()
         
         try:
-            data = await request.json()
+            # Check content type to determine how to parse the request
+            content_type = request.headers.get("content-type", "")
+            
+            if "multipart/form-data" in content_type:
+                # Handle multipart form data (standard file upload)
+                form = await request.form()
+                
+                file_upload = form.get("file")
+                if not file_upload:
+                    raise ValidationError(
+                        code="MISSING_FILE",
+                        message="file is required in form data",
+                        request_id="",
+                    )
+                
+                # Read file bytes
+                file_bytes = await file_upload.read()
+                filename = file_upload.filename or "guidelines.pdf"
+                content_type_file = file_upload.content_type or "application/pdf"
+                
+                # Get other form fields
+                organization_id = form.get("organization_id") or "00000000-0000-0000-0000-000000000000"
+                brand_name = form.get("brand_name") or filename.replace(".pdf", "")
+                
+                # Check for optional logo upload
+                logo_file_upload = form.get("logo")
+                logo_file_bytes = None
+                logo_filename = None
+                if logo_file_upload:
+                    logo_file_bytes = await logo_file_upload.read()
+                    logo_filename = logo_file_upload.filename or "logo.png"
+                    logger.info("logo_file_received", 
+                               logo_size=len(logo_file_bytes), 
+                               logo_filename=logo_filename)
+                
+                logger.info("multipart_upload_received", 
+                           file_size=len(file_bytes), 
+                           filename=filename,
+                           brand_name=brand_name,
+                           has_logo=logo_file_bytes is not None)
+                
+            else:
+                # Handle JSON with base64-encoded file (legacy support)
+                try:
+                    data = await request.json()
+                except UnicodeDecodeError as e:
+                    logger.error("json_decode_error", error=str(e))
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "error": {
+                                "code": "INVALID_REQUEST",
+                                "message": "Use multipart/form-data for file uploads",
+                                "details": {"error": str(e)},
+                            }
+                        }
+                    )
+                
+                import base64
+                organization_id = data.get("organization_id") or "00000000-0000-0000-0000-000000000000"
+                brand_name = data.get("brand_name")
+                
+                if not brand_name:
+                    raise ValidationError(
+                        code="MISSING_BRAND_NAME",
+                        message="brand_name is required",
+                        request_id="",
+                    )
+                
+                file_data = data.get("file")
+                if not file_data:
+                    raise ValidationError(
+                        code="MISSING_FILE",
+                        message="file data is required",
+                        request_id="",
+                    )
+                
+                # Decode base64
+                if isinstance(file_data, str):
+                    if file_data.startswith("data:"):
+                        file_data = file_data.split(",", 1)[1]
+                    file_bytes = base64.b64decode(file_data)
+                else:
+                    file_bytes = file_data
+                
+                filename = data.get("filename", "guidelines.pdf")
+                content_type_file = data.get("content_type", "application/pdf")
+                
+                logger.info("json_upload_received", 
+                           file_size=len(file_bytes),
+                           brand_name=brand_name)
+            
+            # Call handler with processed data
             result = await ingest_brand_handler(
-                organization_id=data.get("organization_id"),
-                brand_name=data.get("brand_name"),
-                file=data.get("file"),
-                content_type=data.get("content_type", "application/pdf"),
-                filename=data.get("filename", "guidelines.pdf"),
+                organization_id=organization_id,
+                brand_name=brand_name,
+                file=file_bytes,
+                content_type=content_type_file,
+                filename=filename,
+                logo_file=logo_file_bytes,
+                logo_filename=logo_filename,
             )
-            return result
+            
+            return result.model_dump() if hasattr(result, 'model_dump') else result
+            
         except MobiusError as e:
             logger.error("endpoint_error", error=str(e))
             return JSONResponse(
@@ -81,14 +192,15 @@ def fastapi_app():
                 content={"error": e.error_response.model_dump()}
             )
         except Exception as e:
-            logger.error("unexpected_error", error=str(e))
+            error_msg = str(e)
+            logger.error("unexpected_error", error=error_msg, error_type=type(e).__name__)
             return JSONResponse(
                 status_code=500,
                 content={
                     "error": {
                         "code": "INTERNAL_ERROR",
                         "message": "An unexpected error occurred",
-                        "details": {"error": str(e)},
+                        "details": {"error": error_msg},
                     }
                 }
             )
@@ -101,18 +213,25 @@ def fastapi_app():
     ):
         """List all brands for an organization."""
         from mobius.api.routes import list_brands_handler
-        from mobius.api.errors import MobiusError
+        from mobius.api.errors import MobiusError, ValidationError
         import structlog
         
         logger = structlog.get_logger()
         
         try:
+            # For now, use a default organization_id if not provided
+            # TODO: Implement proper multi-tenant organization management
+            if not organization_id:
+                # Use a consistent UUID for default organization
+                organization_id = "00000000-0000-0000-0000-000000000000"
+            
             result = await list_brands_handler(
                 organization_id=organization_id,
                 search=search,
                 limit=limit,
             )
-            return result
+            # Ensure proper JSON serialization of Pydantic model
+            return result.model_dump() if hasattr(result, 'model_dump') else result
         except MobiusError as e:
             logger.error("endpoint_error", error=str(e))
             return JSONResponse(

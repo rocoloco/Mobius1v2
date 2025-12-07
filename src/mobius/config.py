@@ -5,20 +5,29 @@ Loads configuration from environment variables with validation.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import field_validator, ValidationError
 from typing import Optional
 import warnings
 import os
 
 
 class Settings(BaseSettings):
-    """Application settings with validation."""
+    """
+    Application settings with validation.
+    
+    Uses Gemini 3 dual-model architecture:
+    - Reasoning Model (gemini-3-pro-preview): PDF parsing, compliance auditing
+    - Vision Model (gemini-3-pro-image-preview): Image generation
+    """
 
     # Modal Secrets / External API Keys
-    fal_api_key: str = ""
     gemini_api_key: str = ""
     supabase_url: str = ""
     supabase_key: str = ""
+
+    # Gemini Model Configuration
+    reasoning_model: str = "gemini-3-pro-preview"
+    vision_model: str = "gemini-3-pro-image-preview"
 
     # Configuration
     max_generation_attempts: int = 3
@@ -30,6 +39,20 @@ class Settings(BaseSettings):
     # Storage buckets
     brands_bucket: str = "brands"
     assets_bucket: str = "assets"
+    
+    @field_validator("gemini_api_key")
+    @classmethod
+    def validate_gemini_api_key(cls, v: str) -> str:
+        """
+        Validate that gemini_api_key is present and non-empty.
+        
+        The Gemini API key is required for all AI operations in the dual-model architecture.
+        """
+        if not v or v.strip() == "":
+            raise ValueError(
+                "gemini_api_key is required. Set GEMINI_API_KEY environment variable."
+            )
+        return v
 
     @field_validator("supabase_url")
     @classmethod

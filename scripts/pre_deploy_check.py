@@ -116,7 +116,7 @@ def check_modal_secrets() -> bool:
 
 def check_env_vars() -> bool:
     """Check required environment variables."""
-    required = ["FAL_KEY", "GEMINI_API_KEY", "SUPABASE_URL", "SUPABASE_KEY"]
+    required = ["GEMINI_API_KEY", "SUPABASE_URL", "SUPABASE_KEY"]
     missing = [var for var in required if not os.getenv(var)]
     
     if missing:

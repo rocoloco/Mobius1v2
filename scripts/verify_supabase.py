@@ -215,6 +215,7 @@ def main():
         print("     - supabase/migrations/003_add_feedback.sql")
         print("     - supabase/migrations/004_learning_privacy.sql")
         print("     - supabase/migrations/004_storage_buckets.sql")
+        print("     - supabase/migrations/005_add_compressed_twin.sql")
         print("\nOr use Supabase CLI:")
         print("  supabase db push")
         print()

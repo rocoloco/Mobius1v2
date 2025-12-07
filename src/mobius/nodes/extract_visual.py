@@ -8,6 +8,7 @@ from mobius.models.state import IngestionState
 from mobius.tools.gemini import GeminiClient
 import httpx
 import structlog
+import time
 
 logger = structlog.get_logger()
 
@@ -21,14 +22,22 @@ async def extract_visual_node(state: IngestionState) -> dict:
     - Logo variations and usage rules
     - Typography examples
     - Visual style patterns
+    - Compressed Digital Twin for generation
 
     Args:
         state: Current ingestion workflow state
 
     Returns:
-        Updated state dict with visual extraction results
+        Updated state dict with visual extraction results and compressed twin
     """
-    logger.info("extract_visual_start", brand_id=state["brand_id"])
+    operation_type = "extract_visual_node"
+    start_time = time.time()
+    
+    logger.info(
+        "extract_visual_start",
+        brand_id=state["brand_id"],
+        operation_type=operation_type
+    )
 
     gemini = GeminiClient()
 
@@ -39,7 +48,24 @@ async def extract_visual_node(state: IngestionState) -> dict:
             response.raise_for_status()
             pdf_bytes = response.content
 
-        logger.debug("pdf_downloaded_for_visual", brand_id=state["brand_id"])
+        logger.debug(
+            "pdf_downloaded_for_visual",
+            brand_id=state["brand_id"],
+            operation_type=operation_type
+        )
+
+        # Extract compressed guidelines for generation
+        compressed_twin = await gemini.extract_compressed_guidelines(pdf_bytes)
+        
+        logger.info(
+            "compressed_twin_extracted",
+            brand_id=state["brand_id"],
+            token_estimate=compressed_twin.estimate_tokens(),
+            primary_colors=len(compressed_twin.primary_colors),
+            secondary_colors=len(compressed_twin.secondary_colors),
+            accent_colors=len(compressed_twin.accent_colors),
+            operation_type=operation_type
+        )
 
         # Construct visual extraction prompt
         prompt = """
@@ -80,23 +106,36 @@ async def extract_visual_node(state: IngestionState) -> dict:
         existing_fonts = state.get("extracted_fonts", [])
         all_fonts = list(set(existing_fonts + visual_fonts))
 
+        latency_ms = int((time.time() - start_time) * 1000)
+        
         logger.info(
             "visual_extraction_complete",
             brand_id=state["brand_id"],
             total_colors=len(all_colors),
             total_fonts=len(all_fonts),
             logo_rules=len(result.get("logo_rules", [])),
+            operation_type=operation_type,
+            latency_ms=latency_ms
         )
 
         return {
             "extracted_colors": all_colors,
             "extracted_fonts": all_fonts,
             "extracted_rules": result.get("logo_rules", []) + result.get("visual_patterns", []),
+            "compressed_twin": compressed_twin,
             "status": "visual_extracted",
         }
 
     except httpx.HTTPError as e:
-        logger.error("pdf_download_failed_visual", brand_id=state["brand_id"], error=str(e))
+        latency_ms = int((time.time() - start_time) * 1000)
+        
+        logger.error(
+            "pdf_download_failed_visual",
+            brand_id=state["brand_id"],
+            error=str(e),
+            operation_type=operation_type,
+            latency_ms=latency_ms
+        )
         # Continue with partial data
         return {
             "status": "partial_extraction",
@@ -105,7 +144,15 @@ async def extract_visual_node(state: IngestionState) -> dict:
         }
 
     except Exception as e:
-        logger.error("visual_extraction_failed", brand_id=state["brand_id"], error=str(e))
+        latency_ms = int((time.time() - start_time) * 1000)
+        
+        logger.error(
+            "visual_extraction_failed",
+            brand_id=state["brand_id"],
+            error=str(e),
+            operation_type=operation_type,
+            latency_ms=latency_ms
+        )
         # Continue with partial data
         return {
             "status": "partial_extraction",

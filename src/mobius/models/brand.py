@@ -13,6 +13,8 @@ The Digital Twin approach provides:
 
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Dict, Any
+import json
+import tiktoken
 
 
 # --- Component 1: The Visual DNA ---
@@ -20,16 +22,38 @@ from typing import List, Optional, Literal, Dict, Any
 
 class Color(BaseModel):
     """
-    Brand color specification.
+    Brand color specification with semantic design tokens.
 
-    Defines a single color with its usage context and constraints.
-    Used by Audit Node to validate color compliance in generated assets.
+    Defines a single color with its semantic role and usage weight.
+    This prevents the "Confetti Problem" where colors are technically correct
+    but aesthetically chaotic due to lack of usage hierarchy.
+    
+    The semantic role allows the Vision Model to understand HOW to use each color,
+    not just THAT it's approved. The usage_weight enables enforcement of the
+    60-30-10 design rule for proper visual hierarchy.
     """
 
     name: str = Field(description="Color name, e.g., 'Midnight Blue'")
     hex: str = Field(description="Hex code, e.g., '#0057B8'")
-    usage: Literal["primary", "secondary", "accent", "background"] = Field(
-        description="Color usage category"
+    usage: Literal["primary", "secondary", "accent", "neutral", "semantic"] = Field(
+        description=(
+            "Semantic role of this color:\n"
+            "- primary: Dominant brand identity (logos, headers)\n"
+            "- secondary: Supporting elements (shapes, icons)\n"
+            "- accent: High-visibility CTAs (buttons, links) - use sparingly\n"
+            "- neutral: Backgrounds, body text (white, black, greys)\n"
+            "- semantic: Functional states (success green, error red)"
+        )
+    )
+    usage_weight: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Estimated usage frequency in the source PDF (0.0 to 1.0). "
+            "Used to enforce the 60-30-10 design rule. "
+            "Inferred by Reasoning Model based on visual analysis of the PDF."
+        )
     )
     context: Optional[str] = Field(None, description="Additional usage context or constraints")
 
@@ -129,6 +153,103 @@ class BrandGuidelines(BaseModel):
     ingested_at: Optional[str] = Field(None, description="ISO timestamp of ingestion")
 
 
+class CompressedDigitalTwin(BaseModel):
+    """
+    Optimized brand guidelines for Vision Model context window.
+    
+    Contains only essential visual rules to fit within 65k tokens.
+    This compressed representation is used during image generation
+    to provide brand context without exceeding the Vision Model's
+    context window limit.
+    
+    CRITICAL: Preserves semantic color hierarchy to prevent the "Confetti Problem"
+    where colors are technically correct but aesthetically chaotic. Each color
+    role tells the Vision Model HOW to use the color, not just THAT it's approved.
+    """
+    
+    # Semantic color hierarchy (prevents Confetti Problem)
+    primary_colors: List[str] = Field(
+        default_factory=list,
+        description="Hex codes for dominant brand identity (logos, headers)"
+    )
+    secondary_colors: List[str] = Field(
+        default_factory=list,
+        description="Hex codes for supporting elements (shapes, icons)"
+    )
+    accent_colors: List[str] = Field(
+        default_factory=list,
+        description="Hex codes for high-visibility CTAs (buttons, links) - use sparingly"
+    )
+    neutral_colors: List[str] = Field(
+        default_factory=list,
+        description="Hex codes for backgrounds and body text (white, black, greys)"
+    )
+    semantic_colors: List[str] = Field(
+        default_factory=list,
+        description="Hex codes for functional states (success green, error red)"
+    )
+    
+    # Typography
+    font_families: List[str] = Field(
+        default_factory=list,
+        description="Font names only (e.g., ['Helvetica Neue', 'Georgia'])"
+    )
+    
+    # Critical constraints (concise rules)
+    visual_dos: List[str] = Field(
+        default_factory=list,
+        description="Positive visual rules (concise bullet points)"
+    )
+    visual_donts: List[str] = Field(
+        default_factory=list,
+        description="Negative visual rules (concise bullet points)"
+    )
+    
+    # Logo requirements (essential only)
+    logo_placement: Optional[str] = Field(
+        None,
+        description="Placement rule (e.g., 'top-left or center')"
+    )
+    logo_min_size: Optional[str] = Field(
+        None,
+        description="Minimum size (e.g., '100px width')"
+    )
+    
+    def estimate_tokens(self) -> int:
+        """
+        Estimate token count for context window validation.
+        
+        Uses tiktoken with cl100k_base encoding (GPT-4 tokenizer)
+        to estimate the number of tokens this compressed twin will
+        consume in the Vision Model's context window.
+        
+        Returns:
+            Estimated token count for the serialized JSON representation
+        """
+        # Serialize to JSON
+        json_str = json.dumps(self.model_dump(), indent=2)
+        
+        # Use tiktoken to count tokens (cl100k_base is used by GPT-4 and Gemini)
+        encoding = tiktoken.get_encoding("cl100k_base")
+        tokens = encoding.encode(json_str)
+        
+        return len(tokens)
+    
+    def validate_size(self) -> bool:
+        """
+        Ensure compressed twin fits within 60k token limit.
+        
+        The Vision Model has a 65k token context window. We use a
+        60k token limit to leave headroom for the prompt and other
+        context that will be included during generation.
+        
+        Returns:
+            True if token count is under 60,000, False otherwise
+        """
+        token_count = self.estimate_tokens()
+        return token_count < 60000
+
+
 class Brand(BaseModel):
     """
     Complete brand entity with Digital Twin guidelines.
@@ -144,6 +265,12 @@ class Brand(BaseModel):
 
     # The Digital Twin Field
     guidelines: BrandGuidelines = Field(description="Structured brand guidelines")
+    
+    # Compressed Digital Twin for generation
+    compressed_twin: Optional[CompressedDigitalTwin] = Field(
+        None,
+        description="Compressed brand guidelines optimized for Vision Model context window"
+    )
 
     # Timestamps
     created_at: str = Field(description="ISO timestamp of creation")

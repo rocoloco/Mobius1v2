@@ -134,7 +134,6 @@ def create_modal_secrets():
     """Create Modal secrets interactively."""
     print_info("Creating Modal secrets...")
     print_info("You'll need the following API keys:")
-    print("  - Fal.ai API key (get from https://fal.ai)")
     print("  - Google Gemini API key (get from https://aistudio.google.com)")
     print("  - Supabase URL (from your Supabase project)")
     print("  - Supabase anon key (from your Supabase project)")
@@ -142,7 +141,6 @@ def create_modal_secrets():
     input("\nPress Enter when ready...")
     
     # Collect secrets
-    fal_key = get_env_var("FAL_KEY", "Enter Fal.ai API key")
     gemini_key = get_env_var("GEMINI_API_KEY", "Enter Google Gemini API key")
     supabase_url = get_env_var("SUPABASE_URL", "Enter Supabase URL")
     supabase_key = get_env_var("SUPABASE_KEY", "Enter Supabase anon key")
@@ -164,7 +162,6 @@ def create_modal_secrets():
     try:
         command = [
             "modal", "secret", "create", "mobius-secrets",
-            f"FAL_KEY={fal_key}",
             f"GEMINI_API_KEY={gemini_key}",
             f"SUPABASE_URL={supabase_url}",
             f"SUPABASE_KEY={supabase_key}",
@@ -178,7 +175,6 @@ def create_modal_secrets():
         print_error(f"Failed to create secrets: {e}")
         print_info("\nYou can create secrets manually with:")
         print(f"modal secret create mobius-secrets \\")
-        print(f"  FAL_KEY=your_key \\")
         print(f"  GEMINI_API_KEY=your_key \\")
         print(f"  SUPABASE_URL=your_url \\")
         print(f"  SUPABASE_KEY=your_key")

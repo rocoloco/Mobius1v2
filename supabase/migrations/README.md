@@ -7,7 +7,9 @@ This directory contains SQL migration files for the Mobius Phase 2 database sche
 1. **001_initial_schema.sql** - Creates brands, assets, and jobs tables with indexes
 2. **002_add_templates.sql** - Creates templates table
 3. **003_add_feedback.sql** - Creates feedback table and learning activation trigger
-4. **004_storage_buckets.sql** - Configures Supabase Storage buckets
+4. **004_learning_privacy.sql** - Creates learning privacy system tables
+5. **004_storage_buckets.sql** - Configures Supabase Storage buckets
+6. **005_add_compressed_twin.sql** - Adds compressed_twin JSONB column to brands table for Gemini 3 dual-architecture
 
 ## Running Migrations
 
@@ -34,7 +36,9 @@ export SUPABASE_URL="postgresql://postgres.[project-ref]:[password]@aws-0-[regio
 psql $SUPABASE_URL -f 001_initial_schema.sql
 psql $SUPABASE_URL -f 002_add_templates.sql
 psql $SUPABASE_URL -f 003_add_feedback.sql
+psql $SUPABASE_URL -f 004_learning_privacy.sql
 psql $SUPABASE_URL -f 004_storage_buckets.sql
+psql $SUPABASE_URL -f 005_add_compressed_twin.sql
 ```
 
 ### Option 3: Using Supabase Dashboard
@@ -42,7 +46,7 @@ psql $SUPABASE_URL -f 004_storage_buckets.sql
 1. Go to your Supabase project dashboard
 2. Navigate to SQL Editor
 3. Copy and paste each migration file content
-4. Execute them in order (001, 002, 003, 004)
+4. Execute them in order (001, 002, 003, 004_learning_privacy, 004_storage_buckets, 005)
 
 ## Verification
 
@@ -108,6 +112,44 @@ postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.co
 ```
 
 Direct connections (port 5432) will exhaust connection limits under load in Modal's serverless environment.
+
+## Migration 005: Compressed Digital Twin
+
+Migration 005 adds support for the Gemini 3 dual-architecture refactoring by adding a `compressed_twin` JSONB column to the brands table. This is a **non-breaking change** (nullable field).
+
+### What it does:
+- Adds `compressed_twin` JSONB column to brands table
+- Creates an index for efficient querying of brands with compressed twins
+- Adds documentation comment explaining the field's purpose
+
+### Testing the migration:
+
+```bash
+# Run the test script
+python scripts/test_compressed_twin_migration.py
+```
+
+The test script verifies:
+1. The column exists and is queryable
+2. Existing brands are not affected (nullable field)
+3. New brands can store compressed twins
+4. Compressed twins can be retrieved and updated
+5. Token count validation works correctly
+
+### Rolling back migration 005:
+
+```bash
+# Using psql
+psql $SUPABASE_URL -f 005_add_compressed_twin_rollback.sql
+
+# Or via Supabase SQL Editor
+# Copy and paste the content of 005_add_compressed_twin_rollback.sql
+```
+
+The rollback is safe because:
+- The column is nullable (no data loss)
+- Dropping the column doesn't affect existing functionality
+- The full `guidelines` field still contains all brand information
 
 ## Rollback
 

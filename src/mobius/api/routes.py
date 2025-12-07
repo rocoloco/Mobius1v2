@@ -32,11 +32,14 @@ async def ingest_brand_handler(
     file: bytes,
     content_type: str,
     filename: str,
+    logo_file: Optional[bytes] = None,
+    logo_filename: Optional[str] = None,
 ) -> IngestBrandResponse:
     """
-    Handle brand guidelines PDF ingestion with validation.
+    Handle brand guidelines PDF ingestion with optional logo upload.
 
     Validates file size, MIME type, and PDF header before processing.
+    Optionally accepts a logo file (PNG with transparency preferred).
 
     Args:
         organization_id: Organization ID
@@ -44,6 +47,8 @@ async def ingest_brand_handler(
         file: PDF file bytes
         content_type: MIME type from upload
         filename: Original filename
+        logo_file: Optional logo image bytes (PNG with transparency preferred)
+        logo_filename: Optional logo filename
 
     Returns:
         IngestBrandResponse with brand_id and status
@@ -99,13 +104,162 @@ async def ingest_brand_handler(
 
     logger.info("pdf_validation_passed", request_id=request_id)
 
-    # TODO: Continue with upload and ingestion workflow
-    # For now, return a placeholder response
+    # Check for existing brand with same name (deduplication)
+    brand_storage = BrandStorage()
+    existing_brands = await brand_storage.list_brands(
+        organization_id=organization_id,
+        search=brand_name,
+        limit=10
+    )
+    
+    # Check for exact name match
+    existing_brand = next(
+        (b for b in existing_brands if b.name.lower() == brand_name.lower()),
+        None
+    )
+    
+    if existing_brand:
+        logger.warning(
+            "duplicate_brand_detected",
+            request_id=request_id,
+            brand_name=brand_name,
+            existing_brand_id=existing_brand.brand_id
+        )
+        raise ValidationError(
+            code="DUPLICATE_BRAND",
+            message=f"A brand named '{brand_name}' already exists for this organization",
+            request_id=request_id,
+            details={
+                "existing_brand_id": existing_brand.brand_id,
+                "brand_name": brand_name,
+            }
+        )
+    
+    # Parse PDF to extract brand guidelines
+    from mobius.ingestion.pdf_parser import PDFParser
+    from mobius.models.brand import Brand
+    from mobius.storage.files import FileStorage
+    import uuid
+    
+    brand_id = str(uuid.uuid4())
+    
+    # Parse PDF into Digital Twin
+    parser = PDFParser()
+    logo_images = []
+    try:
+        guidelines, logo_images = await parser.parse_pdf(file, filename)
+        logger.info("pdf_parsed", request_id=request_id, brand_id=brand_id, logo_count=len(logo_images))
+        needs_review = []
+    except Exception as e:
+        logger.error("pdf_parsing_failed", request_id=request_id, error=str(e))
+        # Fall back to empty guidelines if parsing fails
+        from mobius.models.brand import BrandGuidelines
+        guidelines = BrandGuidelines(
+            colors=[],
+            typography=[],
+            logos=[],
+            voice=None,
+            rules=[],
+            source_filename=filename,
+        )
+        needs_review = [f"PDF parsing failed: {str(e)}"]
+    
+    # Upload PDF to storage
+    file_storage = FileStorage()
+    
+    try:
+        pdf_url = await file_storage.upload_pdf(
+            file=file,
+            brand_id=brand_id,
+            filename=filename,
+        )
+        logger.info("pdf_uploaded", request_id=request_id, brand_id=brand_id, pdf_url=pdf_url)
+    except Exception as e:
+        logger.error("pdf_upload_failed", request_id=request_id, error=str(e))
+        raise StorageError(
+            operation="upload_pdf",
+            request_id=request_id,
+            details={"error": str(e)},
+        )
+    
+    # Upload logo - prioritize manually uploaded logo over extracted
+    logo_thumbnail_url = None
+    
+    if logo_file:
+        # User provided a logo file - use this (highest quality)
+        try:
+            # Validate logo file
+            if len(logo_file) > 10 * 1024 * 1024:  # 10MB max for logo
+                logger.warning("logo_file_too_large", request_id=request_id, size_mb=len(logo_file) / 1024 / 1024)
+                needs_review.append("Logo file too large (max 10MB)")
+            else:
+                # Determine filename
+                logo_name = logo_filename or "logo.png"
+                
+                logo_thumbnail_url = await file_storage.upload_logo(
+                    file=logo_file,
+                    brand_id=brand_id,
+                    filename=logo_name,
+                )
+                logger.info("manual_logo_uploaded", request_id=request_id, brand_id=brand_id, logo_url=logo_thumbnail_url)
+        except Exception as e:
+            logger.error("manual_logo_upload_failed", request_id=request_id, error=str(e))
+            needs_review.append(f"Logo upload failed: {str(e)}")
+    
+    elif logo_images:
+        # Fallback: Use extracted logo from PDF
+        try:
+            logo_thumbnail_url = await file_storage.upload_logo(
+                file=logo_images[0],
+                brand_id=brand_id,
+                filename="logo_extracted.png",
+            )
+            logger.info("extracted_logo_uploaded", request_id=request_id, brand_id=brand_id, logo_url=logo_thumbnail_url)
+        except Exception as e:
+            logger.warning("extracted_logo_upload_failed", request_id=request_id, error=str(e))
+            needs_review.append("Logo extraction/upload failed")
+    
+    else:
+        # No logo provided or extracted
+        logger.info("no_logo_available", request_id=request_id, brand_id=brand_id)
+        needs_review.append("No logo provided - upload logo for best generation results")
+    
+    # Create brand with parsed guidelines
+    from datetime import datetime, timezone
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    brand = Brand(
+        brand_id=brand_id,
+        organization_id=organization_id,
+        name=brand_name,
+        guidelines=guidelines,
+        pdf_url=pdf_url,
+        logo_thumbnail_url=logo_thumbnail_url,
+        needs_review=needs_review,
+        learning_active=False,
+        feedback_count=0,
+        created_at=now,
+        updated_at=now,
+    )
+    
+    # Save to database (brand_storage already initialized above for deduplication check)
+    try:
+        created_brand = await brand_storage.create_brand(brand)
+        logger.info("brand_created", request_id=request_id, brand_id=brand_id)
+    except Exception as e:
+        logger.error("brand_creation_failed", request_id=request_id, error=str(e))
+        raise StorageError(
+            operation="create_brand",
+            request_id=request_id,
+            details={"error": str(e)},
+        )
+    
     return IngestBrandResponse(
-        brand_id="brand-placeholder",
-        status="validation_passed",
-        pdf_url="https://placeholder.com/pdf",
-        needs_review=[],
+        brand_id=brand_id,
+        status="created",
+        pdf_url=pdf_url,
+        needs_review=brand.needs_review,
         request_id=request_id,
     )
 

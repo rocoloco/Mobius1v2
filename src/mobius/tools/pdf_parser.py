@@ -145,3 +145,101 @@ class PDFParser:
 
         logger.debug("font_names_extracted", count=len(unique_fonts))
         return unique_fonts[:10]  # Limit to 10 fonts
+
+    def extract_images(self, pdf_bytes: bytes, max_images: int = 10) -> List[bytes]:
+        """
+        Extract images from a PDF file using PyMuPDF (fitz).
+
+        Extracts the first N images found in the PDF, prioritizing larger images
+        which are more likely to be logos or important brand assets.
+
+        Args:
+            pdf_bytes: PDF file as bytes
+            max_images: Maximum number of images to extract (default 10)
+
+        Returns:
+            List of image bytes (PNG format)
+        """
+        logger.info("extracting_pdf_images", size_bytes=len(pdf_bytes), max_images=max_images)
+
+        images = []
+        
+        try:
+            import fitz  # PyMuPDF
+            
+            # Open PDF with PyMuPDF
+            pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+            
+            for page_num in range(len(pdf_document)):
+                page = pdf_document[page_num]
+                image_list = page.get_images()
+                
+                logger.debug("page_images_found", page_num=page_num + 1, count=len(image_list))
+                
+                for img_index, img in enumerate(image_list):
+                    try:
+                        xref = img[0]  # Image reference number
+                        
+                        # Extract image
+                        base_image = pdf_document.extract_image(xref)
+                        image_bytes = base_image["image"]
+                        
+                        # Get image info
+                        width = base_image.get("width", 0)
+                        height = base_image.get("height", 0)
+                        
+                        # Skip very small images (likely decorative)
+                        if width < 50 or height < 50:
+                            logger.debug("image_too_small", page_num=page_num + 1, width=width, height=height)
+                            continue
+                        
+                        # Convert to PNG if needed
+                        ext = base_image["ext"]
+                        if ext in ["png", "jpg", "jpeg"]:
+                            # Already in a good format
+                            images.append(image_bytes)
+                            logger.debug(
+                                "image_extracted",
+                                page_num=page_num + 1,
+                                size_bytes=len(image_bytes),
+                                width=width,
+                                height=height,
+                                format=ext
+                            )
+                        else:
+                            # Convert to PNG using PIL
+                            from PIL import Image
+                            img_pil = Image.open(io.BytesIO(image_bytes))
+                            img_bytes_io = io.BytesIO()
+                            img_pil.save(img_bytes_io, format='PNG')
+                            png_bytes = img_bytes_io.getvalue()
+                            images.append(png_bytes)
+                            logger.debug(
+                                "image_converted_to_png",
+                                page_num=page_num + 1,
+                                size_bytes=len(png_bytes),
+                                width=width,
+                                height=height,
+                                original_format=ext
+                            )
+                        
+                        if len(images) >= max_images:
+                            break
+                            
+                    except Exception as e:
+                        logger.warning("image_extraction_failed", page_num=page_num + 1, error=str(e))
+                        continue
+                
+                if len(images) >= max_images:
+                    break
+            
+            pdf_document.close()
+            logger.info("pdf_images_extracted", count=len(images))
+            return images
+            
+        except ImportError:
+            logger.error("pymupdf_not_installed", message="PyMuPDF (fitz) is required for image extraction")
+            return []
+        except Exception as e:
+            logger.error("pdf_image_extraction_failed", error=str(e))
+            return []

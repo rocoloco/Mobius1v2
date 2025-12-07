@@ -39,7 +39,8 @@ class JobStorage:
             idempotency_key=job.idempotency_key,
         )
 
-        data = job.model_dump()
+        # Serialize with mode='json' to convert datetime to ISO strings
+        data = job.model_dump(mode='json')
         result = self.client.table("jobs").insert(data).execute()
 
         logger.info("job_created", job_id=job.job_id)
