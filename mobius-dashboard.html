@@ -706,6 +706,27 @@ const assetResultDiv = document.getElementById('assetResult');
 const compliance = job.compliance_score || 0;
 const badgeColor = compliance >= 80 ? 'bg-green-500' : compliance >= 60 ? 'bg-yellow-500' : 'bg-red-500';
 
+// Build violations HTML if available
+let violationsHTML = '';
+if (job.violations && job.violations.length > 0) {
+violationsHTML = `
+<div class="p-3 bg-red-50 rounded border border-red-200 mb-3">
+<p class="text-sm font-medium text-red-800 mb-2">❌ Issues Found (${job.violations.length})</p>
+<ul class="text-xs text-red-700 space-y-2">
+${job.violations.map(v => `
+<li class="flex items-start gap-2">
+<span class="font-bold mt-0.5 flex-shrink-0">•</span>
+<div class="flex-1">
+<span class="font-semibold capitalize">${v.category}:</span> ${v.description}
+${v.fix_suggestion ? `<br><span class="text-red-600 italic mt-1 block">💡 Suggestion: ${v.fix_suggestion}</span>` : ''}
+</div>
+</li>
+`).join('')}
+</ul>
+</div>
+`;
+}
+
 // Show the image in the result area with review options
 assetResultDiv.innerHTML = `
 <div>
@@ -720,8 +741,9 @@ ${job.current_image_url ? `
 ` : '<p class="text-red-500">No image URL</p>'}
 <div class="p-4 bg-yellow-50 rounded border border-yellow-200 mb-3">
 <p class="text-sm font-medium text-yellow-800 mb-2">⚠️ Borderline Compliance (${Math.round(compliance)}%)</p>
-<p class="text-xs text-yellow-700">This image scored between 70-95%. You can approve it as-is, request tweaks, or regenerate from scratch.</p>
+<p class="text-xs text-yellow-700">This image scored between 70-95%. Review the issues below and decide how to proceed.</p>
 </div>
+${violationsHTML}
 </div>
 `;
 

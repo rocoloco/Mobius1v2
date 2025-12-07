@@ -201,6 +201,7 @@ class JobStatusResponse(BaseModel):
     progress: float = Field(ge=0, le=100)
     current_image_url: Optional[str]
     compliance_score: Optional[float]
+    violations: Optional[list] = None  # Violation details for needs_review status
     error: Optional[str]
     created_at: datetime
     updated_at: datetime

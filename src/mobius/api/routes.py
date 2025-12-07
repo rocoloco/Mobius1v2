@@ -1246,15 +1246,34 @@ async def get_job_status_handler(job_id: str) -> dict:
         compliance_scores = job.state.get("compliance_scores", []) if job.state else []
         # Calculate overall score if available
         compliance_score = None
+        violations = None
         if compliance_scores:
-            compliance_score = compliance_scores[-1].get("overall_score") if compliance_scores[-1] else None
-        
+            latest_compliance = compliance_scores[-1] if compliance_scores[-1] else None
+            if latest_compliance:
+                compliance_score = latest_compliance.get("overall_score")
+                # Extract violations from categories for needs_review status
+                if job.status == "needs_review":
+                    violations = []
+                    categories = latest_compliance.get("categories", [])
+                    for category in categories:
+                        if isinstance(category, dict):
+                            cat_violations = category.get("violations", [])
+                            for v in cat_violations:
+                                if isinstance(v, dict):
+                                    violations.append({
+                                        "category": v.get("category", category.get("category", "unknown")),
+                                        "description": v.get("description", ""),
+                                        "severity": v.get("severity", "medium"),
+                                        "fix_suggestion": v.get("fix_suggestion", "")
+                                    })
+
         return JobStatusResponse(
             job_id=job.job_id,
             status=job.status,
             progress=job.progress,
             current_image_url=current_image_url,
             compliance_score=compliance_score,
+            violations=violations,
             error=job.error,
             created_at=job.created_at,
             updated_at=job.updated_at,
