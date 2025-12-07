@@ -68,8 +68,11 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
     for category in categories:
         violations = category.get("violations", [])
         for violation in violations:
-            if violation:
-                violation_suggestions.append(violation)
+            if violation and isinstance(violation, dict):
+                # Extract the fix_suggestion from the violation dict
+                fix_text = violation.get("fix_suggestion") or violation.get("description")
+                if fix_text:
+                    violation_suggestions.append(fix_text)
     
     if violation_suggestions:
         fix_suggestion = " ".join(violation_suggestions[:3])  # Use top 3 violations
@@ -82,7 +85,9 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
         logger.info(
             "applying_correction",
             job_id=state.get("job_id"),
-            fix_suggestion=fix_suggestion[:100],
+            fix_suggestion=fix_suggestion,
+            original_prompt=original_prompt,
+            enhanced_prompt=enhanced_prompt,
             original_prompt_length=len(original_prompt),
             enhanced_prompt_length=len(enhanced_prompt)
         )

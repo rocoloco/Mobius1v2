@@ -60,17 +60,17 @@ Click to select PDF (max 50MB)
 <div class="mb-3">
 <label class="block text-sm text-gray-600 mb-1">
 Brand Logo (Optional)
-<span class="text-xs text-gray-500">- PNG with transparency preferred</span>
+<span class="text-xs text-green-600 font-medium">- SVG preferred for best quality!</span>
 </label>
 <div class="border-2 border-dashed border-blue-200 rounded-lg p-4 text-center bg-blue-50">
-<input type="file" id="logoFile" accept=".png,.jpg,.jpeg" class="hidden" onchange="updateLogoFileName()">
+<input type="file" id="logoFile" accept=".svg,.png,.jpg,.jpeg" class="hidden" onchange="updateLogoFileName()">
 <label for="logoFile" class="cursor-pointer text-blue-600 hover:text-blue-800" id="logoLabel">
 <svg class="w-8 h-8 mx-auto mb-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
 </svg>
 Upload logo for best results
 </label>
-<p class="text-xs text-gray-500 mt-1">PNG with transparent background recommended (max 10MB)</p>
+<p class="text-xs text-gray-500 mt-1">SVG (vector) preferred, or PNG with transparency (max 10MB)</p>
 </div>
 </div>
 
@@ -114,10 +114,6 @@ Upload logo for best results
 Example: A social media banner featuring our product with bold typography"
 class="w-full border rounded px-3 py-2 h-28 resize-none"></textarea>
 </div>
-<label class="flex items-center gap-2 cursor-pointer">
-<input type="checkbox" id="asyncMode" checked class="rounded">
-<span class="text-sm text-gray-600">Async mode (recommended)</span>
-</label>
 <button onclick="generateAsset()" class="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600 font-medium" id="generateBtn">🎨 Generate Asset</button>
 <div id="jobStatus"></div>
 <div id="generateError"></div>
@@ -400,11 +396,31 @@ function updateLogoFileName() {
 const file = document.getElementById('logoFile').files[0];
 const label = document.getElementById('logoLabel');
 if (file) {
-const isPNG = file.name.toLowerCase().endsWith('.png');
-const icon = isPNG ? 
-`<svg class="w-6 h-6 inline mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>` :
-`<svg class="w-6 h-6 inline mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
-label.innerHTML = `${icon}${file.name}${!isPNG ? ' <span class="text-xs">(PNG preferred)</span>' : ''}`;
+const fileName = file.name.toLowerCase();
+const isSVG = fileName.endsWith('.svg');
+const isPNG = fileName.endsWith('.png');
+const isJPG = fileName.endsWith('.jpg') || fileName.endsWith('.jpeg');
+
+let icon, message;
+if (isSVG) {
+// SVG is best - green checkmark with star
+icon = `<svg class="w-6 h-6 inline mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+message = ' <span class="text-xs text-green-600 font-medium">✨ Perfect! Vector format</span>';
+} else if (isPNG) {
+// PNG is good - green checkmark
+icon = `<svg class="w-6 h-6 inline mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+message = ' <span class="text-xs text-gray-500">(SVG would be even better)</span>';
+} else if (isJPG) {
+// JPG is okay but not ideal - yellow warning
+icon = `<svg class="w-6 h-6 inline mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+message = ' <span class="text-xs text-yellow-600">(PNG or SVG preferred)</span>';
+} else {
+// Unknown format
+icon = `<svg class="w-6 h-6 inline mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+message = '';
+}
+
+label.innerHTML = `${icon}${file.name}${message}`;
 } else {
 label.innerHTML = `<svg class="w-8 h-8 mx-auto mb-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>Upload logo for best results`;
 }
@@ -468,7 +484,7 @@ btn.textContent = 'Upload & Ingest';
 async function generateAsset() {
 const brandId = document.getElementById('brandSelect').value;
 const prompt = document.getElementById('promptInput').value;
-const asyncMode = document.getElementById('asyncMode').checked;
+const asyncMode = false; // Always use sync mode for now
 
 if (!brandId || !prompt || !apiBase) return;
 
@@ -477,8 +493,13 @@ const jobStatusDiv = document.getElementById('jobStatus');
 const errorDiv = document.getElementById('generateError');
 
 btn.disabled = true;
-btn.textContent = 'Submitting...';
-jobStatusDiv.innerHTML = '';
+btn.textContent = 'Generating...';
+jobStatusDiv.innerHTML = `
+<div class="p-3 bg-blue-50 rounded border border-blue-200">
+<p class="text-sm text-blue-700 font-medium">⏳ Generating asset...</p>
+<p class="text-xs text-blue-600 mt-1">This may take 2-3 minutes for compliance checking and retries</p>
+</div>
+`;
 errorDiv.innerHTML = '';
 
 try {
@@ -498,7 +519,7 @@ jobStatusDiv.innerHTML = `
 <p class="text-xs text-blue-600 mt-1 font-mono">${data.job_id}</p>
 </div>
 `;
-pollJob(data.job_id);
+pollJob(data.job_id, prompt);  // Pass the prompt to pollJob
 } else {
 displayAsset(data);
 document.getElementById('promptInput').value = '';
@@ -512,7 +533,7 @@ btn.textContent = '🎨 Generate Asset';
 }
 
 // Poll job
-async function pollJob(jobId) {
+async function pollJob(jobId, originalPrompt) {
 const jobStatusDiv = document.getElementById('jobStatus');
 const errorDiv = document.getElementById('generateError');
 let attempts = 0;
@@ -522,6 +543,8 @@ const poll = async () => {
 try {
 const response = await fetch(`${apiBase}/jobs/${jobId}`);
 const job = await response.json();
+
+console.log('Job poll response:', job);
 
 jobStatusDiv.innerHTML = `
 <div class="p-3 bg-blue-50 rounded border border-blue-200">
@@ -534,7 +557,15 @@ ${job.progress ? `<span class="text-xs text-blue-600">${job.progress}%</span>` :
 `;
 
 if (job.status === 'completed') {
-displayAsset(job.result);
+// Map job response to asset format expected by displayAsset
+const asset = {
+image_url: job.current_image_url,
+compliance_score: job.compliance_score,
+status: job.status,
+prompt: originalPrompt
+};
+console.log('Displaying asset:', asset);
+displayAsset(asset);
 document.getElementById('promptInput').value = '';
 jobStatusDiv.innerHTML = '';
 return;
@@ -562,6 +593,20 @@ poll();
 
 // Display asset
 function displayAsset(asset) {
+console.log('displayAsset called with:', asset);
+
+// Validate asset has image_url
+if (!asset.image_url) {
+console.error('Asset missing image_url:', asset);
+document.getElementById('assetResult').innerHTML = `
+<div class="p-4 bg-yellow-50 border border-yellow-200 rounded">
+<p class="text-yellow-800">⚠️ Image generation completed but image URL is missing</p>
+<pre class="text-xs mt-2 bg-white p-2 rounded overflow-auto">${JSON.stringify(asset, null, 2)}</pre>
+</div>
+`;
+return;
+}
+
 assets.unshift(asset);
 document.getElementById('assetCount').textContent = assets.length;
 
@@ -580,7 +625,7 @@ ${asset.image_url ? `
 <a href="${asset.image_url}" target="_blank">
 <img src="${asset.image_url}" alt="Generated asset" class="w-full rounded-lg mb-3 border hover:opacity-90">
 </a>
-` : ''}
+` : '<p class="text-red-500">No image URL</p>'}
 ${Object.keys(categories).length > 0 ? `
 <div class="mb-3">
 <p class="text-sm font-medium mb-2">Category Scores</p>

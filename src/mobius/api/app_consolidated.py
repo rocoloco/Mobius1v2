@@ -20,6 +20,7 @@ project_root = this_file.parent.parent.parent.parent
 
 image = (
     modal.Image.debian_slim()
+    .apt_install("libcairo2")  # Required for SVG rasterization
     .pip_install(
         "fastapi>=0.104.0",
         "python-multipart>=0.0.6",
@@ -31,12 +32,15 @@ image = (
         "pdfplumber>=0.10.0",
         "PyMuPDF>=1.23.0",
         "Pillow>=10.0.0",
+        "cairosvg>=2.7.0",  # Required for SVG to PNG conversion
         "httpx>=0.25.0",
         "structlog>=23.0.0",
         "tenacity>=8.2.0",
+        "tiktoken>=0.5.0",
         "hypothesis>=6.0.0",
     )
     .add_local_dir(str(project_root / "src"), "/root/mobius-src", copy=True)
+    .add_local_file(str(project_root / "mobius-dashboard.html"), "/root/mobius-dashboard.html")
 )
 
 # Define secrets
@@ -58,13 +62,14 @@ def fastapi_app():
     
     web_app = FastAPI(title="Mobius API", version="2.0.0")
     
-    # CORS middleware - allow all origins for testing phase
+    # CORS middleware - allow all origins including file:// and localhost for testing
     web_app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,  # Must be False when using allow_origins=["*"]
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],
     )
     
     # Brand Management Routes
@@ -716,8 +721,28 @@ def fastapi_app():
                 }
             )
     
+    # Dashboard UI
+
+    @web_app.get("/")
+    async def serve_dashboard():
+        """Serve the Mobius dashboard HTML."""
+        from fastapi.responses import HTMLResponse
+
+        # Read the dashboard HTML file from Modal container
+        dashboard_path = Path("/root/mobius-dashboard.html")
+        if dashboard_path.exists():
+            html_content = dashboard_path.read_text(encoding='utf-8')
+            # Update API URL in the HTML to use relative path
+            html_content = html_content.replace(
+                'https://rocoloco--mobius-v2-final-fastapi-app.modal.run/v1',
+                '/v1'
+            )
+            return HTMLResponse(content=html_content)
+        else:
+            return HTMLResponse(content="<h1>Mobius API</h1><p>Dashboard not found. Use /v1/docs for API documentation.</p>")
+
     # Legacy Phase 1 Endpoint
-    
+
     @web_app.post("/run_mobius_job")
     async def run_mobius_job(request: Request):
         """Legacy Phase 1 endpoint for backward compatibility."""
@@ -770,6 +795,8 @@ def fastapi_app():
 )
 async def cleanup_expired_jobs():
     """Cleanup expired jobs and associated temporary files."""
+    import sys
+    sys.path.insert(0, "/root/mobius-src")  # Add mounted source to Python path
     
     from mobius.storage.database import get_supabase_client
     from mobius.storage.files import FileStorage

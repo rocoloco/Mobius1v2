@@ -114,25 +114,27 @@ def create_generation_workflow():
 async def run_generation_workflow(
     brand_id: str,
     prompt: str,
+    job_id: Optional[str] = None,
     webhook_url: Optional[str] = None,
     template_id: Optional[str] = None,
     **generation_params,
 ) -> dict:
     """
     Execute the generation workflow for a brand.
-    
+
     This function creates and executes the LangGraph workflow that:
     1. Generates an image using the Vision Model with Compressed Digital Twin
     2. Audits the image using the Reasoning Model
     3. Applies corrections and retries if needed (up to max_attempts)
-    
+
     Args:
         brand_id: Brand ID to generate for
         prompt: Generation prompt
+        job_id: Optional job ID to use (will generate UUID if not provided)
         webhook_url: Optional webhook URL for completion notification
         template_id: Optional template ID to use
         **generation_params: Additional generation parameters
-        
+
     Returns:
         Dictionary with workflow results including:
         - job_id: Unique job identifier
@@ -141,10 +143,11 @@ async def run_generation_workflow(
         - is_approved: Whether asset passed compliance
         - compliance_scores: List of compliance score dictionaries
         - attempt_count: Number of generation attempts made
-        
+
     Requirements: 3.1, 7.2
     """
-    job_id = str(uuid.uuid4())
+    if not job_id:
+        job_id = str(uuid.uuid4())
     
     logger.info(
         "generation_workflow_started",

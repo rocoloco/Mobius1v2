@@ -429,21 +429,36 @@ This implementation plan breaks down the Gemini 3 dual-architecture refactoring 
 
 ## Phase 7: Documentation Updates
 
-- [ ] 24. Update MOBIUS-ARCHITECTURE.md
+- [x] 24. Update MOBIUS-ARCHITECTURE.md
+
+
+
+
+
   - Replace Fal.ai references with Gemini 3 descriptions
   - Update architecture diagrams to show dual-model approach
   - Document Reasoning Model and Vision Model usage
   - Update external services section
   - _Requirements: 8.1, 8.2, 8.5_
 
-- [ ] 25. Update deployment documentation
+- [x] 25. Update deployment documentation
+
+
+
+
+
   - Remove FAL_KEY from required secrets in all docs
   - Emphasize GEMINI_API_KEY requirement
   - Update Modal secret creation commands
   - Add Gemini-specific troubleshooting guidance
   - _Requirements: 8.3, 8.4_
 
-- [ ] 26. Update API documentation
+- [x] 26. Update API documentation
+
+
+
+
+
   - Ensure OpenAPI specs reflect current implementation
   - Update example requests and responses
   - Document error codes and retry behavior
@@ -454,28 +469,34 @@ This implementation plan breaks down the Gemini 3 dual-architecture refactoring 
 
 ## Phase 8: Integration Testing and Validation
 
-- [ ] 27. Run end-to-end integration tests
+- [x] 27. Run end-to-end integration tests
+
+
+
+
+
+
+
+
   - Test full ingestion workflow: PDF → Compressed Twin → Database
   - Test full generation workflow: Prompt → Vision Model → Image URI
   - Test full audit workflow: Image URI → Reasoning Model → Compliance Score
   - Test correction loop with new architecture
   - _Requirements: 7.1, 7.2, 7.3, 7.4_
 
-- [ ] 28. Perform load testing
+- [x] 28. Perform load testing
+
+
+
+
+
+
   - Test concurrent ingestion requests
   - Test concurrent generation requests
   - Measure latency percentiles (p50, p95, p99)
   - Verify rate limit handling under load
   - _Requirements: 9.2_
 
-- [ ] 29. Validate cost and performance metrics
-  - Compare API costs before and after refactoring
-  - Measure token usage per operation type
-  - Track error rates by operation
-  - Verify compressed twin token counts
-  - _Requirements: 2.4_
-
----
 
 ## Summary
 

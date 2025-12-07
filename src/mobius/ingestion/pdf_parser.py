@@ -46,7 +46,21 @@ class DigitalTwinPDFParser:
     def __init__(self):
         """Initialize parser with Gemini API and base PDF tools."""
         genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel("gemini-3-pro-preview")
+        
+        # Configure safety settings to allow brand guideline content
+        # Brand guidelines may contain business/marketing content that
+        # could trigger false positives in safety filters
+        safety_settings = {
+            "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
+            "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
+            "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
+        }
+        
+        self.model = genai.GenerativeModel(
+            "gemini-3-pro-preview",
+            safety_settings=safety_settings
+        )
         self.base_parser = BasePDFParser()
 
     async def parse_pdf(self, pdf_bytes: bytes, filename: str) -> tuple[BrandGuidelines, List[bytes]]:
@@ -238,21 +252,31 @@ Extract and return comprehensive brand information in JSON format:
     {{
       "name": "Forest Green",
       "hex": "#2D5016",
-      "rgb": "45, 80, 22",
-      "cmyk": "44, 0, 73, 69",
-      "pantone": "349 C",
       "usage": "primary",
-      "description": "Primary brand color representing growth and sustainability",
-      "emotional_attributes": ["trustworthy", "natural", "stable"],
-      "accessibility": {{
-        "wcag_aa_compliant": true,
-        "min_contrast_ratio": 4.5
-      }},
-      "usage_contexts": ["headers", "CTAs", "brand elements"],
-      "avoid_contexts": ["body text on white", "small text"],
-      "pairings": ["cream", "white", "charcoal"]
+      "description": "Primary brand color for headlines and logo"
+    }},
+    {{
+      "name": "Heritage Gold",
+      "hex": "#C4A962",
+      "usage": "accent",
+      "description": "Accent color for CTAs and highlights"
+    }},
+    {{
+      "name": "Natural Cream",
+      "hex": "#F5F1E6",
+      "usage": "neutral",
+      "description": "Background color and negative space"
+    }},
+    {{
+      "name": "Deep Charcoal",
+      "hex": "#1A1A1A",
+      "usage": "neutral",
+      "description": "Body text and dark backgrounds"
     }}
   ],
+  
+  CRITICAL: Extract EVERY color from the document. If you see 4 colors in a table, extract all 4.
+  Do not skip any colors. Count them carefully.
   "typography": [
     {{
       "family": "Helvetica Neue",
@@ -478,10 +502,16 @@ CRITICAL INSTRUCTIONS:
             "primary": "primary",
             "secondary": "secondary",
             "accent": "accent",
-            "background": "background",
-            "text": "primary",  # Map text to primary
+            "background": "neutral",
+            "backgrounds": "neutral",
+            "text": "neutral",  # Body text is neutral
+            "body text": "neutral",
             "general": "secondary",
-            "neutral": "background",
+            "neutral": "neutral",
+            "cta": "accent",
+            "ctas": "accent",
+            "button": "accent",
+            "highlight": "accent",
         }
         
         for i, color_data in enumerate(parsed_data.get("colors", [])):

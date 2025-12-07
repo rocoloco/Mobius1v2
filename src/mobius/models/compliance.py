@@ -38,46 +38,25 @@ class CategoryScore(BaseModel):
     """Compliance score for a specific category."""
 
     category: str = Field(description="Category name (colors, typography, layout, logo_usage)")
-    score: float = Field(ge=0, le=100, description="Score from 0-100")
+    score: float = Field(description="Score from 0-100")
     passed: bool = Field(description="Whether this category passed compliance threshold")
     violations: List[Violation] = Field(default_factory=list, description="List of violations")
+
+    def model_post_init(self, __context):
+        """Validate score is in valid range."""
+        if not 0 <= self.score <= 100:
+            raise ValueError(f"Score must be between 0 and 100, got {self.score}")
 
 
 class ComplianceScore(BaseModel):
     """Overall compliance score with category breakdowns."""
 
-    overall_score: float = Field(ge=0, le=100, description="Weighted average of all categories")
+    overall_score: float = Field(description="Weighted average of all categories (0-100)")
     categories: List[CategoryScore] = Field(description="Individual category scores")
     approved: bool = Field(description="Whether asset is approved for use")
     summary: str = Field(description="Overall assessment summary")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "overall_score": 85.5,
-                "categories": [
-                    {
-                        "category": "colors",
-                        "score": 90.0,
-                        "passed": True,
-                        "violations": [],
-                    },
-                    {
-                        "category": "typography",
-                        "score": 75.0,
-                        "passed": False,
-                        "violations": [
-                            {
-                                "category": "typography",
-                                "description": "Font family does not match brand guidelines",
-                                "severity": "medium",
-                                "fix_suggestion": "Use Arial or Helvetica",
-                            }
-                        ],
-                    },
-                ],
-                "approved": True,
-                "summary": "Asset meets brand standards with minor typography issues",
-            }
-        }
-    )
+    def model_post_init(self, __context):
+        """Validate overall_score is in valid range."""
+        if not 0 <= self.overall_score <= 100:
+            raise ValueError(f"Overall score must be between 0 and 100, got {self.overall_score}")

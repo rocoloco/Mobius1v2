@@ -152,7 +152,8 @@ class GeminiClient:
             format=response_format,
             model_name=model_name,
             operation_type=operation_type,
-            token_count=input_token_count
+            token_count=input_token_count,
+            analysis_prompt=prompt  # Log the full prompt for audit trail
         )
 
         try:
@@ -538,27 +539,160 @@ class GeminiClient:
             logo_min_size=logo_min_size
         )
 
+    async def optimize_prompt(
+        self,
+        user_prompt: str,
+        compressed_twin: "CompressedDigitalTwin",
+        has_logo: bool = False
+    ) -> str:
+        """
+        Use Reasoning Model to optimize user prompt for brand-compliant generation.
+
+        Takes a simple user prompt and enhances it with:
+        - Specific brand color references
+        - Typography guidance
+        - Logo placement instructions
+        - Visual style alignment
+
+        Args:
+            user_prompt: Original user prompt
+            compressed_twin: Brand guidelines context
+            has_logo: Whether brand logo will be provided as multi-modal input
+
+        Returns:
+            Optimized prompt for Vision Model
+        """
+        operation_type = "prompt_optimization"
+        start_time = time.time()
+
+        logger.info(
+            "optimizing_prompt",
+            user_prompt=user_prompt,
+            has_logo=has_logo,
+            operation_type=operation_type
+        )
+
+        # Detect if user explicitly wants text in the image
+        text_keywords = ['text', 'headline', 'caption', 'slogan', 'tagline', 'copy', 'words', 'saying', 'quote', 'message', 'ad', 'advertisement', 'banner', 'poster']
+        user_wants_text = any(keyword in user_prompt.lower() for keyword in text_keywords)
+        
+        logger.info(
+            "prompt_analysis",
+            user_wants_text=user_wants_text,
+            operation_type=operation_type
+        )
+
+        # Build optimization context
+        optimization_prompt = f"""You are a brand-compliant prompt engineer. Optimize this user prompt to ensure brand compliance while maintaining creative intent.
+
+## User's Original Prompt:
+{user_prompt}
+
+## Brand Guidelines to Follow:
+"""
+
+        # Add brand context
+        if compressed_twin.primary_colors:
+            optimization_prompt += f"\n- Primary Colors: {', '.join(compressed_twin.primary_colors)}"
+        if compressed_twin.accent_colors:
+            optimization_prompt += f"\n- Accent Colors: {', '.join(compressed_twin.accent_colors)}"
+        if compressed_twin.font_families:
+            optimization_prompt += f"\n- Typography: {', '.join(compressed_twin.font_families)}"
+        if compressed_twin.visual_dos:
+            optimization_prompt += f"\n- Visual Guidelines (DO): {'; '.join(compressed_twin.visual_dos[:5])}"
+        if compressed_twin.visual_donts:
+            optimization_prompt += f"\n- Visual Guidelines (DON'T): {'; '.join(compressed_twin.visual_donts[:5])}"
+
+        if has_logo:
+            optimization_prompt += "\n- The brand logo image will be provided separately as visual reference"
+
+        optimization_prompt += """
+
+## Your Task:
+Enhance the user's prompt to be more specific and brand-compliant. Include:
+1. Specific color hex codes from the brand palette where appropriate
+2. Visual style guidance aligned with brand rules
+3. Typography guidance if text is requested (use approved fonts)
+4. If the user mentions "logo" or "our logo", note that the logo will be included as a reference image
+5. Maintain the user's creative intent while ensuring brand compliance
+6. Keep it concise - one clear sentence
+
+## IMPORTANT RULES:
+"""
+
+        if user_wants_text:
+            optimization_prompt += """- The user HAS requested text/copy in the image - preserve this intent
+- Specify which approved fonts to use for any text elements
+- Ensure text follows brand voice and color guidelines
+- DO NOT remove or ignore the user's request for text content"""
+        else:
+            optimization_prompt += """- The user has NOT requested text/copy in the image
+- DO NOT add instructions for text, headlines, slogans, or marketing copy
+- Focus purely on the photographic/visual scene
+- When logos are mentioned, describe them as physical elements in the scene (e.g., "on the product")"""
+
+        optimization_prompt += """
+
+Return ONLY the optimized prompt, no explanations or preamble."""
+
+        try:
+            # Use Reasoning Model for optimization
+            generation_config = GenerationConfig(temperature=0.7)
+
+            result = await asyncio.to_thread(
+                self.reasoning_model.generate_content,
+                [optimization_prompt],
+                generation_config=generation_config,
+            )
+
+            optimized_prompt = result.text.strip()
+
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            logger.info(
+                "prompt_optimized",
+                user_prompt=user_prompt,
+                optimized_prompt=optimized_prompt,
+                operation_type=operation_type,
+                latency_ms=latency_ms
+            )
+
+            return optimized_prompt
+
+        except Exception as e:
+            logger.warning(
+                "prompt_optimization_failed_using_original",
+                error=str(e),
+                operation_type=operation_type
+            )
+            # Fall back to original prompt if optimization fails
+            return user_prompt
+
     async def generate_image(
         self,
         prompt: str,
         compressed_twin: "CompressedDigitalTwin",
+        logo_bytes: list[bytes] = None,
+        original_prompt: str = None,
         **generation_params
     ) -> str:
         """
-        Generate image using Vision Model with compressed brand context.
-        
+        Generate image using Vision Model with compressed brand context and optional logo.
+
         Injects the Compressed Digital Twin into the system prompt to ensure
-        brand-compliant image generation. Implements retry logic with exponential
-        backoff and increased timeouts for resilience.
-        
+        brand-compliant image generation. Supports multi-modal input with logo images.
+        Implements retry logic with exponential backoff and increased timeouts for resilience.
+
         Args:
-            prompt: User's image generation prompt
+            prompt: Optimized image generation prompt
             compressed_twin: Compressed brand guidelines for context
+            logo_bytes: Optional list of logo images as bytes for multi-modal input
+            original_prompt: Original user prompt (before optimization) for intent detection
             **generation_params: Additional generation parameters (temperature, etc.)
-            
+
         Returns:
             image_uri: URI reference to the generated image
-            
+
         Raises:
             Exception: If generation fails after all retry attempts
         """
@@ -576,24 +710,63 @@ class GeminiClient:
         prompt_tokens = self._estimate_token_count(prompt)
         input_token_count = compressed_twin_tokens + prompt_tokens
         
+        # Detect if user wants text in the image (use original prompt if available)
+        prompt_to_check = original_prompt if original_prompt else prompt
+        text_keywords = ['text', 'headline', 'caption', 'slogan', 'tagline', 'copy', 'words', 'saying', 'quote', 'message', 'ad', 'advertisement', 'banner', 'poster']
+        user_wants_text = any(keyword in prompt_to_check.lower() for keyword in text_keywords)
+        
         logger.info(
             "generating_image",
             prompt_length=len(prompt),
+            has_logo=bool(logo_bytes),
+            logo_count=len(logo_bytes) if logo_bytes else 0,
+            user_wants_text=user_wants_text,
             model_name=model_name,
             operation_type=operation_type,
             token_count=input_token_count
         )
-        
+
         # Build system prompt with compressed twin injection
-        system_prompt = self._build_generation_system_prompt(compressed_twin)
-        
+        system_prompt = self._build_generation_system_prompt(
+            compressed_twin, 
+            has_logo=bool(logo_bytes),
+            allow_text=user_wants_text
+        )
+
         # Combine system prompt with user prompt
         full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
-        
+
+        # Log the full prompt for audit trail
+        logger.info(
+            "image_generation_prompt",
+            system_prompt=system_prompt,
+            user_prompt=prompt,
+            full_prompt_length=len(full_prompt),
+            has_logo=bool(logo_bytes),
+            operation_type=operation_type
+        )
+
         # Configure generation parameters
         generation_config = GenerationConfig(
             temperature=generation_params.get("temperature", 0.7),
         )
+
+        # Build multi-modal content list
+        # Format: [text_prompt, logo_image_1, logo_image_2, ...]
+        content_parts = [full_prompt]
+
+        if logo_bytes:
+            for idx, logo_data in enumerate(logo_bytes):
+                content_parts.append({
+                    "mime_type": "image/png",  # Assume PNG, could be made dynamic
+                    "data": logo_data
+                })
+                logger.info(
+                    "adding_logo_to_generation",
+                    logo_index=idx,
+                    logo_size_bytes=len(logo_data),
+                    operation_type=operation_type
+                )
         
         # Retry loop with exponential backoff and increased timeouts
         last_exception = None
@@ -611,10 +784,11 @@ class GeminiClient:
                 )
                 
                 # Generate image using vision model with timeout
+                # Pass content_parts (text + optional logo images)
                 result = await asyncio.wait_for(
                     asyncio.to_thread(
                         self.vision_model.generate_content,
-                        [full_prompt],
+                        content_parts,
                         generation_config=generation_config,
                     ),
                     timeout=timeout
@@ -705,24 +879,44 @@ class GeminiClient:
             f"Image generation failed after {max_attempts} attempts: {str(handled_error)}"
         )
     
-    def _build_generation_system_prompt(self, compressed_twin: "CompressedDigitalTwin") -> str:
+    def _build_generation_system_prompt(
+        self, 
+        compressed_twin: "CompressedDigitalTwin", 
+        has_logo: bool = False,
+        allow_text: bool = False
+    ) -> str:
         """
         Build system prompt with compressed twin injection.
-        
+
         Creates a structured prompt that provides the Vision Model with
         essential brand guidelines for compliant image generation.
-        
+
         Args:
             compressed_twin: Compressed brand guidelines
-            
+            has_logo: Whether logo images are included as multi-modal input
+            allow_text: Whether the user has requested text/copy in the image
+
         Returns:
             System prompt string with injected brand context
         """
         prompt_parts = [
             "You are a brand-compliant image generator. Generate images that strictly follow these brand guidelines:",
             "",
-            "## Brand Colors (by semantic role):",
         ]
+
+        if has_logo:
+            prompt_parts.extend([
+                "## Logo Usage:",
+                "- Brand logo images are provided as reference",
+                "- Use the provided logo(s) in the generated image when appropriate",
+                "- Maintain logo integrity - do not distort, recolor, or modify the logo design",
+                "- When placing logos on products (bottles, packaging, etc.), apply them as FLAT overlays that maintain proper proportions",
+                "- DO NOT wrap logos around curved surfaces or apply perspective distortion",
+                "- If a product surface is curved, place the logo on a flat label area or use a straight-on angle",
+                "",
+            ])
+
+        prompt_parts.append("## Brand Colors (by semantic role):")
         
         # Add color guidelines by semantic role
         if compressed_twin.primary_colors:
@@ -766,7 +960,30 @@ class GeminiClient:
                 prompt_parts.append(f"- Minimum size: {compressed_twin.logo_min_size}")
         
         prompt_parts.append("")
-        prompt_parts.append("Follow the 60-30-10 design rule: 60% neutral, 30% primary/secondary, 10% accent.")
+        prompt_parts.append("## CRITICAL VISUAL CONSTRAINTS:")
+
+        if allow_text:
+            # User wants text in the image (ad, poster, banner, etc.)
+            prompt_parts.append("- If text/copy is requested, use ONLY the approved brand fonts")
+            prompt_parts.append("- For text on dark backgrounds: Use light accent or neutral colors, add subtle drop shadows for separation")
+            prompt_parts.append("- For text on light backgrounds: Use dark primary or neutral colors with crisp edges")
+            prompt_parts.append("- Keep text concise and aligned with brand voice")
+            prompt_parts.append("- DO NOT add text unless explicitly requested by the user")
+        else:
+            # User wants a pure photographic scene
+            prompt_parts.append("- Generate PHOTOGRAPHIC images only - no text overlays, headlines, or marketing copy")
+            prompt_parts.append("- DO NOT add any text, slogans, taglines, or written content to the image")
+            prompt_parts.append("- Focus on the visual scene described in the user prompt")
+
+        prompt_parts.append("- Follow the 60-30-10 design rule: 60% neutral, 30% primary/secondary, 10% accent")
+        prompt_parts.append("")
+        prompt_parts.append("## ADVANCED RENDERING TECHNIQUES:")
+        prompt_parts.append("- For logos on products: Place on FLAT label areas, patches, or stickers")
+        prompt_parts.append("- For text on fabric: Add rim lighting or studio lighting to create edge contrast")
+        prompt_parts.append("- For metallic/reflective surfaces: Use directional lighting to separate foreground from background")
+        prompt_parts.append("- For dark backgrounds: Layer elements with drop shadows, halos, or lighter intermediate surfaces")
+        prompt_parts.append("- For curved products (bottles, cans): Show label area straight-on or use flat label mockups")
+        prompt_parts.append("- Prioritize LEGIBILITY over strict color matching - lighting and contrast are more important than exact hex codes")
         
         return "\n".join(prompt_parts)
     
@@ -851,9 +1068,17 @@ class GeminiClient:
         try:
             # Build audit prompt with full brand guidelines context
             audit_prompt = self._build_audit_prompt(brand_guidelines)
-            
+
             # Estimate input token count
             input_token_count = self._estimate_token_count(audit_prompt)
+
+            # Log the audit prompt for audit trail
+            logger.info(
+                "compliance_audit_prompt",
+                audit_prompt=audit_prompt,
+                prompt_length=len(audit_prompt),
+                operation_type=operation_type
+            )
             
             # Download image from URI if it's a URL
             image_data = None
@@ -899,11 +1124,31 @@ class GeminiClient:
             output_token_count = self._estimate_token_count(result.text)
             total_token_count = input_token_count + output_token_count
             
+            # Log detailed audit results for audit trail
+            category_details = [
+                {
+                    "category": cat.category,
+                    "score": cat.score,
+                    "passed": cat.passed,
+                    "violations": [
+                        {
+                            "description": v.description,
+                            "severity": v.severity,
+                            "fix_suggestion": v.fix_suggestion
+                        }
+                        for v in cat.violations
+                    ]
+                }
+                for cat in compliance_score.categories
+            ]
+
             logger.info(
                 "compliance_audited",
                 overall_score=compliance_score.overall_score,
                 approved=compliance_score.approved,
+                summary=compliance_score.summary,
                 categories=len(compliance_score.categories),
+                category_details=category_details,
                 model_name=model_name,
                 operation_type=operation_type,
                 latency_ms=latency_ms,
@@ -1045,14 +1290,31 @@ class GeminiClient:
             "3. **layout**: Assess composition, spacing, and visual hierarchy",
             "4. **logo_usage**: Check logo placement, sizing, and background compliance",
             "",
+            "## CRITICAL CONTEXT RULES (Apply Visual Intelligence):",
+            "- On **metallic, reflective, or 3D surfaces** (bottles, cans, packaging), technical contrast ratios may be lower due to lighting and environmental reflections",
+            "- If text/logo is **clearly legible to a human observer** despite mathematical ratio failures, mark as PASSED with a note",
+            "- Ignore **water droplets, highlights, rim lighting, and studio lighting effects** when calculating contrast",
+            "- For **product photography with realistic lighting**, prioritize visual legibility over strict numerical ratios",
+            "- **Fabric textures** (t-shirts, apparel) naturally create visual separation even with technically low contrast",
+            "- **Drop shadows, halos, and edge lighting** are valid techniques that improve legibility beyond raw color contrast",
+            "- If the image uses **flat labels, patches, or stickers** on products, apply standard contrast rules to those surfaces only",
+            "",
+            "## EXCEPTION: Premium Aesthetic Override",
+            "For high-quality product photography where the brand aesthetic requires premium materials (gold on silver, metallic on dark, etc.):",
+            "- If the image demonstrates **professional lighting** (rim lighting, studio setup, directional shadows)",
+            "- AND the text/logo is **clearly readable** in the rendered image",
+            "- Mark contrast violations as **WARNINGS** instead of CRITICAL",
+            "- Note: \"Acceptable for premium product photography with proper lighting\"",
+            "",
             "For each category, provide:",
             "- A score from 0-100",
             "- Whether it passed (score >= 80)",
             "- List of specific violations with severity and fix suggestions",
+            "- **Apply contextual leniency** as described above before flagging violations",
             "",
             "Calculate overall_score as weighted average of categories.",
             "Set approved=true if overall_score >= 80.",
-            "Provide a summary of the overall assessment.",
+            "Provide a summary of the overall assessment with contextual notes.",
         ])
         
         return "\n".join(prompt_parts)
@@ -1064,7 +1326,7 @@ class GeminiClient:
         Extract structured brand guidelines from a PDF using Reasoning Model.
 
         Uses Gemini with response_schema to ensure output matches BrandGuidelines model.
-        Explicitly handles negative_constraint detection for "Do Not" rules.
+        Temperature set to 0.0 for maximum consistency.
 
         Args:
             pdf_bytes: PDF file as bytes
@@ -1087,7 +1349,7 @@ class GeminiClient:
             operation_type=operation_type
         )
 
-        # Construct detailed prompt with semantic color mapping and negative_constraint guidance
+        # Construct extraction prompt
         prompt = """
         Analyze this brand guidelines PDF and extract structured information.
         
@@ -1098,9 +1360,7 @@ class GeminiClient:
            - Estimate usage_weight (0.0 to 1.0) based on visual prominence and surface area
            - Include any context about when/how to use each color
            
-           **CRITICAL: Semantic Color Mapping Rules (The "Rosetta Stone")**
-           You must normalize the PDF's terminology into our strict semantic roles:
-           
+           **Semantic Color Mapping Rules:**
            - **PRIMARY** (Identity): Core brand color for logos and headers
              Trigger terms: "Primary", "Core", "Dominant", "Main", "Logo Color", "Brand Identity"
              Visual clue: Color used for largest headlines or logo
@@ -1152,10 +1412,10 @@ class GeminiClient:
         """
 
         if extracted_text:
-            prompt += f"\n\nExtracted text for context:\n{extracted_text[:2000]}"
+            prompt += f"\n\nExtracted text for context:\n{extracted_text[:5000]}"
 
         try:
-            # Use response_schema to ensure structured output
+            # Use response_schema with temperature=0.0 for consistency
             guidelines = await self.analyze_pdf(
                 pdf_bytes=pdf_bytes,
                 prompt=prompt,

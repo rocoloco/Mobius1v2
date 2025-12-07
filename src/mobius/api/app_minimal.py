@@ -14,10 +14,12 @@ app = modal.App("mobius-v2")
 # Define image with all dependencies
 image = (
     modal.Image.debian_slim()
+    .apt_install("libcairo2")  # Required for SVG rasterization
     .pip_install(
         "fastapi>=0.104.0",
         "pydantic>=2.0.0",
         "supabase>=2.0.0",
+        "cairosvg>=2.7.0",  # Required for SVG to PNG conversion
         "structlog>=23.0.0",
     )
 )

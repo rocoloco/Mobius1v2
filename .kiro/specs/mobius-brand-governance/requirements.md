@@ -54,8 +54,10 @@ Mobius is a brand governance API that ensures AI-generated images comply with br
 #### Acceptance Criteria
 
 1. WHEN the orchestrator module is deployed, THEN the Mobius System SHALL run as a Modal App named "mobius-worker"
-2. WHEN the Modal App starts, THEN the Mobius System SHALL load secrets for FAL_KEY, GEMINI_API_KEY, SUPABASE_URL, and SUPABASE_KEY from Modal's secret management
+2. WHEN the Modal App starts, THEN the Mobius System SHALL load secrets for GEMINI_API_KEY, SUPABASE_URL, and SUPABASE_KEY from Modal's secret management
 3. WHEN the LangGraph Workflow executes, THEN the Mobius System SHALL operate as an asynchronous worker within the Modal runtime
+
+**Note**: FAL_KEY is no longer required as the system now uses Gemini 3 for all image generation.
 
 ### Requirement 4
 

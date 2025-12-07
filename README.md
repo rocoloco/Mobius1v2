@@ -19,7 +19,7 @@ Mobius is an AI-powered brand governance platform that automatically generates, 
 - Python 3.11+
 - Modal account (https://modal.com)
 - Supabase account (https://supabase.com)
-- API keys for Fal.ai and Google Gemini
+- Google Gemini API key (https://ai.google.dev)
 
 ### Installation
 
@@ -121,8 +121,8 @@ Mobius uses a modular, serverless architecture:
 - **Database**: Supabase (PostgreSQL)
 - **Storage**: Supabase Storage (CDN)
 - **Orchestration**: LangGraph (state machines)
-- **Image Generation**: Fal.ai (Flux.2)
-- **Visual Audit**: Google Gemini (multimodal AI)
+- **Image Generation**: Google Gemini 3 Pro Image Preview (native multimodal)
+- **Visual Audit**: Google Gemini 3 Pro Preview (advanced reasoning)
 
 ## Testing
 
@@ -234,7 +234,6 @@ cp .env.example .env
 
 5. Edit `.env` with your credentials:
 ```env
-FAL_KEY=your_fal_api_key
 GEMINI_API_KEY=your_gemini_api_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_key
@@ -324,8 +323,7 @@ See `docs/testing-notes.md` for detailed testing strategies and performance opti
 
 All configuration is managed through environment variables or `.env` file:
 
-- `FAL_KEY`: Fal.ai API key for image generation
-- `GEMINI_API_KEY`: Google Gemini API key for auditing
+- `GEMINI_API_KEY`: Google Gemini API key for image generation and auditing (REQUIRED)
 - `SUPABASE_URL`: Supabase project URL (use pooler URL for production)
 - `SUPABASE_KEY`: Supabase anonymous key
 - `MAX_GENERATION_ATTEMPTS`: Maximum generation attempts (default: 3)
@@ -350,9 +348,9 @@ The system validates your Supabase URL and warns if you're not using the pooler.
 - **API Framework**: Pydantic v2 for validation
 - **Database**: Supabase PostgreSQL
 - **File Storage**: Supabase Storage with CDN
-- **Image Generation**: Fal.ai (Flux.2 Pro) and Ideogram
-- **Visual AI**: Google Gemini 1.5 Pro
-- **PDF Processing**: pdfplumber
+- **Image Generation**: Google Gemini 3 Pro Image Preview (native multimodal)
+- **Visual AI**: Google Gemini 3 Pro Preview (advanced reasoning)
+- **PDF Processing**: PyMuPDF (fitz) + pdfplumber
 - **Testing**: pytest with Hypothesis for property-based tests
 - **Logging**: structlog for structured JSON logging
 
@@ -841,11 +839,12 @@ Configure secrets in Modal dashboard or via CLI:
 
 ```bash
 modal secret create mobius-secrets \
-  FAL_KEY=your_fal_api_key \
   GEMINI_API_KEY=your_gemini_api_key \
   SUPABASE_URL=your_supabase_pooler_url \
   SUPABASE_KEY=your_supabase_key
 ```
+
+**IMPORTANT**: The `GEMINI_API_KEY` is required for both image generation and compliance auditing. Get your API key from [Google AI Studio](https://ai.google.dev).
 
 ### Database Migrations
 
@@ -904,6 +903,47 @@ psql $DATABASE_URL < supabase/migrations/004_storage_buckets.sql
 postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
 ```
 
+### Gemini API Rate Limits
+
+**Problem:** Generation fails with "Rate limit exceeded" or 429 errors
+
+**Solution:**
+1. System automatically retries with exponential backoff (built-in)
+2. Check your API quota in [Google AI Studio](https://ai.google.dev)
+3. Upgrade to higher tier if needed for production workloads
+4. Monitor rate limit errors in logs (includes model name for debugging)
+5. Consider implementing request queuing for high-volume scenarios
+
+**Rate Limit Details:**
+- Free tier: 15 requests per minute (RPM)
+- Paid tier: 1000+ RPM (varies by plan)
+- Error includes `retry-after` header for backoff timing
+
+### Gemini API Authentication Errors
+
+**Problem:** 401 Unauthorized or "Invalid API key" errors
+
+**Solution:**
+1. Verify `GEMINI_API_KEY` is set correctly in Modal secrets
+2. Ensure API key is from [Google AI Studio](https://ai.google.dev), not Google Cloud Console
+3. Check API key hasn't expired or been revoked
+4. Confirm API key has Gemini API access enabled
+5. Test API key with a simple curl request:
+```bash
+curl "https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY"
+```
+
+### Image Generation Timeouts
+
+**Problem:** Generation fails with timeout errors
+
+**Solution:**
+1. System automatically retries with increased timeout (built-in)
+2. Check Gemini API status at [Google Cloud Status](https://status.cloud.google.com)
+3. Complex prompts may take longer - simplify if possible
+4. Review logs for specific timeout duration and model name
+5. Consider breaking complex generations into simpler steps
+
 ### Webhook Delivery Failures
 
 **Problem:** Webhooks not being received
@@ -921,8 +961,20 @@ postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.co
 **Solution:**
 1. Verify PDF is under 50MB
 2. Check PDF is valid (not corrupted)
-3. Ensure PDF contains extractable text
+3. Ensure PDF contains extractable text (not scanned images)
 4. Review `needs_review` field for ambiguous content
+5. Check logs for Gemini API errors during extraction
+
+### Compressed Twin Token Limit Exceeded
+
+**Problem:** Brand ingestion fails with "Token limit exceeded" error
+
+**Solution:**
+1. System automatically compresses guidelines to fit 60k token limit
+2. If still failing, brand guidelines may be extremely verbose
+3. Review PDF for excessive repetition or boilerplate text
+4. Consider manually editing PDF to remove non-essential content
+5. Check logs for actual token count estimate
 
 ### Template Creation Fails
 

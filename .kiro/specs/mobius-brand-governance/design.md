@@ -378,10 +378,11 @@ The system will use a dual testing strategy combining unit tests for specific sc
 ### Secret Management
 
 All secrets are managed through Modal's secret management system. The implementation expects a secret named "mobius-secrets" containing:
-- `FAL_KEY`: Fal.ai API key
-- `GEMINI_API_KEY`: Google GenAI API key
-- `SUPABASE_URL`: Supabase project URL
+- `GEMINI_API_KEY`: Google Gemini API key (REQUIRED - used for both image generation and auditing)
+- `SUPABASE_URL`: Supabase project URL (use pooler URL for production)
 - `SUPABASE_KEY`: Supabase API key
+
+**Note**: `FAL_KEY` is no longer required as Fal.ai has been replaced with Gemini 3 native image generation.
 
 ### Prompt Engineering
 
@@ -466,11 +467,19 @@ curl -X POST https://your-modal-app.modal.run/run_mobius_job \
 ```bash
 # Create Modal secret
 modal secret create mobius-secrets \
-  FAL_KEY=<your-fal-key> \
   GEMINI_API_KEY=<your-gemini-key> \
-  SUPABASE_URL=<your-supabase-url> \
+  SUPABASE_URL=<your-supabase-pooler-url> \
   SUPABASE_KEY=<your-supabase-key>
 ```
+
+**Getting Your Gemini API Key**:
+1. Visit [Google AI Studio](https://ai.google.dev)
+2. Sign in with your Google account
+3. Click "Get API Key" in the top right
+4. Create a new API key or use an existing one
+5. Copy the key and use it in the command above
+
+**Important**: Use the Supabase pooler URL (port 6543) for production deployments to avoid connection exhaustion.
 
 ## Future Enhancements
 

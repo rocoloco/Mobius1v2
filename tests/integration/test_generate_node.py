@@ -85,6 +85,9 @@ async def test_generate_node_success(
     mock_storage_class.return_value = mock_storage
     
     mock_gemini = Mock()
+    mock_gemini.optimize_prompt = AsyncMock(
+        return_value="Optimized: Create a modern tech logo"
+    )
     mock_gemini.generate_image = AsyncMock(
         return_value="https://example.com/generated-image.png"
     )
@@ -96,10 +99,13 @@ async def test_generate_node_success(
     # Verify brand was loaded
     mock_storage.get_brand.assert_called_once_with("test-brand-001")
     
+    # Verify optimize_prompt was called
+    mock_gemini.optimize_prompt.assert_called_once()
+    
     # Verify generate_image was called with compressed twin
     mock_gemini.generate_image.assert_called_once()
     call_args = mock_gemini.generate_image.call_args
-    assert call_args.kwargs["prompt"] == "Create a modern tech logo"
+    assert call_args.kwargs["prompt"] == "Optimized: Create a modern tech logo"
     assert call_args.kwargs["compressed_twin"] == sample_brand.compressed_twin
     assert call_args.kwargs["temperature"] == 0.7
     
@@ -133,13 +139,14 @@ async def test_generate_node_brand_not_found(mock_storage_class, sample_job_stat
 
 @pytest.mark.asyncio
 @patch("mobius.nodes.generate.BrandStorage")
+@patch("mobius.nodes.generate.GeminiClient")
 async def test_generate_node_missing_compressed_twin(
-    mock_storage_class, sample_brand, sample_job_state
+    mock_gemini_class, mock_storage_class, sample_brand, sample_job_state
 ):
     """
-    Test error handling when compressed twin is missing.
+    Test that generate node creates fallback compressed twin when missing.
     
-    Validates: Error handling for brands without compressed twins
+    Validates: Fallback behavior for brands without compressed twins
     """
     # Setup brand without compressed twin
     brand_without_twin = Brand(
@@ -156,13 +163,22 @@ async def test_generate_node_missing_compressed_twin(
     mock_storage.get_brand = AsyncMock(return_value=brand_without_twin)
     mock_storage_class.return_value = mock_storage
     
+    mock_gemini = Mock()
+    mock_gemini.optimize_prompt = AsyncMock(
+        return_value="Optimized prompt"
+    )
+    mock_gemini.generate_image = AsyncMock(
+        return_value="https://example.com/image.png"
+    )
+    mock_gemini_class.return_value = mock_gemini
+    
     # Execute node
     result = await generate_node(sample_job_state)
     
-    # Verify error state
-    assert result["status"] == "generation_error"
+    # Verify fallback compressed twin was created and generation succeeded
+    assert result["status"] == "generated"
     assert result["attempt_count"] == 1
-    assert "compressed twin" in result["error"].lower()
+    assert result["current_image_url"] == "https://example.com/image.png"
 
 
 @pytest.mark.asyncio
@@ -182,6 +198,9 @@ async def test_generate_node_generation_failure(
     mock_storage_class.return_value = mock_storage
     
     mock_gemini = Mock()
+    mock_gemini.optimize_prompt = AsyncMock(
+        return_value="Optimized prompt"
+    )
     mock_gemini.generate_image = AsyncMock(
         side_effect=Exception("Generation API error")
     )
@@ -213,6 +232,9 @@ async def test_generate_node_increments_attempt_count(
     mock_storage_class.return_value = mock_storage
     
     mock_gemini = Mock()
+    mock_gemini.optimize_prompt = AsyncMock(
+        return_value="Optimized prompt"
+    )
     mock_gemini.generate_image = AsyncMock(
         return_value="https://example.com/image.png"
     )
@@ -245,6 +267,9 @@ async def test_generate_node_passes_generation_params(
     mock_storage_class.return_value = mock_storage
     
     mock_gemini = Mock()
+    mock_gemini.optimize_prompt = AsyncMock(
+        return_value="Optimized prompt"
+    )
     mock_gemini.generate_image = AsyncMock(
         return_value="https://example.com/image.png"
     )

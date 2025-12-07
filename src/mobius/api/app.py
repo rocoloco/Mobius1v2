@@ -7,13 +7,22 @@ configures the runtime environment with dependencies and secrets.
 
 import modal
 from typing import Optional
+from pathlib import Path
 
 # Define Modal app
 app = modal.App("mobius-v2")
 
+# Mount the source code so Modal functions can import from mobius package
+# This resolves "ModuleNotFoundError: No module named 'mobius'" in scheduled functions
+src_mount = modal.Mount.from_local_dir(
+    Path(__file__).parent.parent.parent,  # Points to src/ directory
+    remote_path="/root/src"
+)
+
 # Define image with all dependencies
 image = (
     modal.Image.debian_slim()
+    .apt_install("libcairo2")  # Required for SVG rasterization
     .pip_install(
         "fastapi>=0.104.0",  # Required for web endpoints
         "langgraph>=0.0.20",
@@ -22,10 +31,14 @@ image = (
         "supabase>=2.0.0",
         "google-generativeai>=0.3.0",
         "pdfplumber>=0.10.0",
+        "cairosvg>=2.7.0",  # Required for SVG to PNG conversion
+        "rembg>=2.0.50",  # Required for automatic background removal
+        "onnxruntime>=1.16.0",  # Required by rembg
         "httpx>=0.25.0",
         "structlog>=23.0.0",
         "tenacity>=8.2.0",
         "hypothesis>=6.0.0",
+        "tiktoken>=0.5.0",
     )
 )
 
@@ -721,6 +734,7 @@ async def run_mobius_job(request: dict):
 @app.function(
     image=image,
     secrets=secrets,
+    mounts=[src_mount],
     schedule=modal.Cron("0 * * * *"),  # Run hourly
 )
 async def cleanup_expired_jobs():
@@ -730,6 +744,9 @@ async def cleanup_expired_jobs():
     Runs hourly via Modal cron schedule.
     Deletes jobs older than 24 hours and cleans up temporary files.
     """
+    import sys
+    sys.path.insert(0, "/root/src")  # Add mounted source to Python path
+    
     from mobius.storage.database import get_supabase_client
     from mobius.storage.files import FileStorage
     import structlog

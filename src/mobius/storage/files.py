@@ -69,21 +69,52 @@ class FileStorage:
             Public CDN URL for the uploaded file
 
         Raises:
-            Exception: If upload fails
+            Exception: If upload fails or file is invalid
         """
-        logger.info("uploading_logo", brand_id=brand_id, size_bytes=len(file))
+        logger.info("uploading_logo", brand_id=brand_id, size_bytes=len(file), filename=filename)
+
+        # Determine if this is an SVG file
+        is_svg = filename.lower().endswith(".svg")
+        
+        # If SVG, convert to PNG since Supabase Storage doesn't support SVG mime type
+        if is_svg:
+            try:
+                file_str = file.decode('utf-8', errors='ignore')[:200]
+                if '<svg' not in file_str.lower() and '<?xml' not in file_str.lower():
+                    raise ValueError("File does not appear to be a valid SVG")
+                logger.info("svg_validation_passed", brand_id=brand_id, size_bytes=len(file))
+                
+                # Convert SVG to PNG for storage (Supabase doesn't support SVG mime type)
+                from mobius.utils.media import LogoRasterizer
+                file = LogoRasterizer.prepare_for_vision(file, "image/svg+xml", target_dim=2048)
+                filename = filename.replace(".svg", ".png")
+                logger.info("svg_converted_to_png", brand_id=brand_id, new_filename=filename, size_bytes=len(file))
+            except Exception as e:
+                logger.error("svg_processing_failed", brand_id=brand_id, error=str(e))
+                raise ValueError(f"Invalid or corrupted SVG file: {str(e)}")
+        
+        # Validate raster images (including converted SVGs)
+        try:
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(file))
+            img.verify()  # Verify it's a valid image
+            logger.info("logo_validation_passed", brand_id=brand_id, format=img.format if hasattr(img, 'format') else 'PNG', size=(img.width if hasattr(img, 'width') else 0, img.height if hasattr(img, 'height') else 0))
+        except Exception as e:
+            logger.error("logo_validation_failed", brand_id=brand_id, error=str(e), error_type=type(e).__name__)
+            raise ValueError(f"Invalid image file: {str(e)}")
+
+        # Determine content type from filename (after potential SVG conversion)
+        content_type = "image/png"
+        if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
+            content_type = "image/jpeg"
+        elif filename.lower().endswith(".webp"):
+            content_type = "image/webp"
 
         # Use assets bucket for images (brands bucket is PDF-only)
         path = f"logos/{brand_id}/{filename}"
 
         try:
-            # Determine content type from filename
-            content_type = "image/png"
-            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
-                content_type = "image/jpeg"
-            elif filename.lower().endswith(".webp"):
-                content_type = "image/webp"
-            
             # Upload to assets bucket (accepts images)
             result = self.client.storage.from_(ASSETS_BUCKET).upload(
                 path, 
