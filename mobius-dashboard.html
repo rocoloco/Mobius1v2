@@ -571,6 +571,12 @@ jobStatusDiv.innerHTML = '';
 return;
 }
 
+if (job.status === 'needs_review') {
+// Show interactive review UI
+showReviewUI(job, jobId, originalPrompt);
+return;
+}
+
 if (job.status === 'failed') {
 errorDiv.innerHTML = `<div class="p-3 bg-red-50 text-red-700 rounded text-sm">${job.error || 'Generation failed'}</div>`;
 jobStatusDiv.innerHTML = '';
@@ -690,6 +696,114 @@ ${asset.image_url ? `
 </div>
 `;
 }).join('');
+}
+
+// Show review UI for needs_review status
+function showReviewUI(job, jobId, originalPrompt) {
+const jobStatusDiv = document.getElementById('jobStatus');
+const assetResultDiv = document.getElementById('assetResult');
+
+const compliance = job.compliance_score || 0;
+const badgeColor = compliance >= 80 ? 'bg-green-500' : compliance >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+
+// Show the image in the result area with review options
+assetResultDiv.innerHTML = `
+<div>
+<div class="flex justify-between items-start mb-3">
+<span class="font-semibold">Review Required</span>
+<span class="${badgeColor} text-white text-sm font-bold px-2 py-1 rounded">${Math.round(compliance)}%</span>
+</div>
+${job.current_image_url ? `
+<a href="${job.current_image_url}" target="_blank">
+<img src="${job.current_image_url}" alt="Generated asset" class="w-full rounded-lg mb-3 border hover:opacity-90">
+</a>
+` : '<p class="text-red-500">No image URL</p>'}
+<div class="p-4 bg-yellow-50 rounded border border-yellow-200 mb-3">
+<p class="text-sm font-medium text-yellow-800 mb-2">⚠️ Borderline Compliance (${Math.round(compliance)}%)</p>
+<p class="text-xs text-yellow-700">This image scored between 70-95%. You can approve it as-is, request tweaks, or regenerate from scratch.</p>
+</div>
+</div>
+`;
+
+// Show review decision UI in job status area
+jobStatusDiv.innerHTML = `
+<div class="p-4 bg-blue-50 rounded border border-blue-200">
+<p class="text-sm font-medium text-blue-800 mb-3">Choose an action:</p>
+<div class="space-y-2">
+<button onclick="submitReviewDecision('${jobId}', 'approve', null, '${originalPrompt}')"
+class="w-full bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600 font-medium">
+✓ Approve - Good Enough!
+</button>
+<div class="border rounded p-3 bg-white">
+<label class="block text-sm text-gray-700 mb-2">✏️ Tweak - Custom Instructions:</label>
+<textarea id="tweakInstruction" placeholder="E.g., Make the brand colors more prominent, or Fix the gold color to be brighter"
+class="w-full border rounded px-3 py-2 text-sm h-20 resize-none mb-2"></textarea>
+<button onclick="submitReviewDecisionWithTweak('${jobId}', '${originalPrompt}')"
+class="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 font-medium">
+Apply Tweak
+</button>
+</div>
+<button onclick="submitReviewDecision('${jobId}', 'regenerate', null, '${originalPrompt}')"
+class="w-full bg-gray-500 text-white py-2 px-4 rounded hover:bg-gray-600 font-medium">
+🔄 Regenerate - Start Fresh
+</button>
+</div>
+<p class="text-xs text-gray-500 mt-3 font-mono">Job ID: ${jobId}</p>
+</div>
+`;
+}
+
+// Submit review decision
+async function submitReviewDecision(jobId, decision, tweakInstruction, originalPrompt) {
+const jobStatusDiv = document.getElementById('jobStatus');
+const errorDiv = document.getElementById('generateError');
+
+try {
+jobStatusDiv.innerHTML = `<div class="p-3 bg-blue-50 rounded"><p class="text-sm text-blue-700">Submitting decision...</p></div>`;
+
+const body = { decision };
+if (decision === 'tweak' && tweakInstruction) {
+body.tweak_instruction = tweakInstruction;
+}
+
+const response = await fetch(`${apiBase}/jobs/${jobId}/review`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(body)
+});
+
+const data = await response.json();
+if (!response.ok) throw new Error(data.detail || data.error?.message || 'Review failed');
+
+if (decision === 'approve') {
+// Job is completed, show the approved asset
+const asset = {
+image_url: document.querySelector('#assetResult img')?.src,
+compliance_score: document.querySelector('#assetResult .bg-green-500, #assetResult .bg-yellow-500, #assetResult .bg-red-500')?.textContent?.trim(),
+status: 'completed',
+prompt: originalPrompt
+};
+displayAsset(asset);
+jobStatusDiv.innerHTML = '<div class="p-3 bg-green-50 rounded text-green-700 text-sm">✓ Approved and completed!</div>';
+setTimeout(() => { jobStatusDiv.innerHTML = ''; }, 3000);
+} else {
+// Job resumed with tweak or regenerate, continue polling
+jobStatusDiv.innerHTML = `<div class="p-3 bg-blue-50 rounded"><p class="text-sm text-blue-700">Resuming generation...</p></div>`;
+pollJob(jobId, originalPrompt);
+}
+} catch (e) {
+errorDiv.innerHTML = `<div class="p-3 bg-red-50 text-red-700 rounded text-sm">${e.message}</div>`;
+}
+}
+
+// Submit review decision with tweak
+function submitReviewDecisionWithTweak(jobId, originalPrompt) {
+const tweakInstruction = document.getElementById('tweakInstruction').value.trim();
+if (!tweakInstruction) {
+alert('Please enter tweak instructions');
+return;
+}
+submitReviewDecision(jobId, 'tweak', tweakInstruction, originalPrompt);
 }
 
 // Initialize
