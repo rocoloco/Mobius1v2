@@ -1097,11 +1097,9 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         prompt_parts.append("- Follow the 60-30-10 design rule: 60% neutral, 30% primary/secondary, 10% accent")
         prompt_parts.append("")
         prompt_parts.append("## ADVANCED RENDERING TECHNIQUES:")
-        prompt_parts.append("- For logos on products: Render logos directly on the product surface using appropriate printing techniques (silk-screen, embossing, engraving, direct print)")
         prompt_parts.append("- For text on fabric: Add rim lighting or studio lighting to create edge contrast")
         prompt_parts.append("- For metallic/reflective surfaces: Use directional lighting to separate foreground from background")
         prompt_parts.append("- For dark backgrounds: Layer elements with drop shadows, halos, or lighter intermediate surfaces")
-        prompt_parts.append("- For curved products (bottles, cans): Apply graphics directly to the surface with appropriate perspective and curvature")
         prompt_parts.append("- Prioritize LEGIBILITY over strict color matching - lighting and contrast are more important than exact hex codes")
         
         return "\n".join(prompt_parts)
