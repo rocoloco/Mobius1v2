@@ -202,31 +202,46 @@ async def generate_node(state: JobState) -> Dict[str, Any]:
             operation_type=operation_type
         )
 
+        # Determine if we should use multi-turn conversation
+        # Use multi-turn if this is a correction attempt (attempt_count > 0)
+        current_attempt = state.get("attempt_count", 0) + 1
+        continue_conversation = current_attempt > 1
+        job_id = state.get("job_id")
+
         # Generate image with Vision Model (with logos if available)
-        image_uri = await gemini_client.generate_image(
+        result = await gemini_client.generate_image(
             prompt=optimized_prompt,
             compressed_twin=brand.compressed_twin,
             logo_bytes=logo_bytes_list if logo_bytes_list else None,
             original_prompt=original_prompt,  # Pass original for text intent detection
+            job_id=job_id,
+            continue_conversation=continue_conversation,
             **generation_params
         )
-        
+
+        # Extract image_uri and session_id from result
+        image_uri = result["image_uri"]
+        session_id = result.get("session_id")
+
         latency_ms = int((time.time() - start_time) * 1000)
-        
+
         logger.info(
             "image_generated",
-            job_id=state.get("job_id"),
+            job_id=job_id,
             brand_id=state["brand_id"],
             image_uri=image_uri[:100] if image_uri else None,
-            attempt_count=state.get("attempt_count", 0) + 1,
+            attempt_count=current_attempt,
+            continue_conversation=continue_conversation,
+            session_id=session_id,
             operation_type=operation_type,
             latency_ms=latency_ms
         )
-        
+
         # Return updated state
         return {
             "current_image_url": image_uri,
-            "attempt_count": state.get("attempt_count", 0) + 1,
+            "attempt_count": current_attempt,
+            "session_id": session_id,
             "status": "generated"
         }
         

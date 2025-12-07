@@ -32,11 +32,16 @@ class GeminiClient:
     def __init__(self):
         """Initialize Gemini client with both reasoning and vision models."""
         genai.configure(api_key=settings.gemini_api_key)
-        
+
         # Initialize both model instances
         self.reasoning_model = genai.GenerativeModel(settings.reasoning_model)
         self.vision_model = genai.GenerativeModel(settings.vision_model)
-        
+
+        # Session management for multi-turn conversations
+        self.active_sessions: Dict[str, Any] = {}
+        self.session_created_at: Dict[str, float] = {}
+        self.session_ttl: int = 3600  # 1 hour TTL for sessions
+
         logger.info(
             "gemini_client_initialized",
             reasoning_model=settings.reasoning_model,
@@ -116,6 +121,78 @@ class GeminiClient:
                 **error_details
             )
             return error
+
+    def get_or_create_session(self, job_id: str, system_prompt: str) -> Any:
+        """
+        Get existing chat session or create a new one for multi-turn conversations.
+
+        Args:
+            job_id: Unique job identifier
+            system_prompt: System prompt for the session
+
+        Returns:
+            ChatSession instance
+        """
+        # Clean up expired sessions first
+        self._cleanup_expired_sessions()
+
+        # Return existing session if found
+        if job_id in self.active_sessions:
+            logger.info(
+                "session_retrieved",
+                job_id=job_id,
+                operation_type="session_management"
+            )
+            return self.active_sessions[job_id]
+
+        # Create new session
+        session = self.vision_model.start_chat(history=[])
+        self.active_sessions[job_id] = session
+        self.session_created_at[job_id] = time.time()
+
+        logger.info(
+            "session_created",
+            job_id=job_id,
+            operation_type="session_management"
+        )
+
+        return session
+
+    def clear_session(self, job_id: str) -> None:
+        """
+        Clear a specific session from memory.
+
+        Args:
+            job_id: Job identifier for the session to clear
+        """
+        if job_id in self.active_sessions:
+            del self.active_sessions[job_id]
+            del self.session_created_at[job_id]
+
+            logger.info(
+                "session_cleared",
+                job_id=job_id,
+                operation_type="session_management"
+            )
+
+    def _cleanup_expired_sessions(self) -> None:
+        """Remove sessions older than TTL."""
+        current_time = time.time()
+        expired_jobs = [
+            job_id
+            for job_id, created_at in self.session_created_at.items()
+            if current_time - created_at > self.session_ttl
+        ]
+
+        for job_id in expired_jobs:
+            self.clear_session(job_id)
+
+        if expired_jobs:
+            logger.info(
+                "sessions_expired",
+                count=len(expired_jobs),
+                operation_type="session_management"
+            )
 
     async def analyze_image(
         self,
@@ -674,11 +751,14 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         compressed_twin: "CompressedDigitalTwin",
         logo_bytes: list[bytes] = None,
         original_prompt: str = None,
+        job_id: Optional[str] = None,
+        continue_conversation: bool = False,
         **generation_params
-    ) -> str:
+    ) -> Dict[str, str]:
         """
         Generate image using Vision Model with compressed brand context and optional logo.
 
+        Supports multi-turn conversations for iterative refinement without full regeneration.
         Injects the Compressed Digital Twin into the system prompt to ensure
         brand-compliant image generation. Supports multi-modal input with logo images.
         Implements retry logic with exponential backoff and increased timeouts for resilience.
@@ -688,10 +768,12 @@ Return ONLY the optimized prompt, no explanations or preamble."""
             compressed_twin: Compressed brand guidelines for context
             logo_bytes: Optional list of logo images as bytes for multi-modal input
             original_prompt: Original user prompt (before optimization) for intent detection
+            job_id: Optional job identifier for session tracking
+            continue_conversation: If True, continues existing conversation for iterative edits
             **generation_params: Additional generation parameters (temperature, etc.)
 
         Returns:
-            image_uri: URI reference to the generated image
+            dict with 'image_uri' and 'session_id' keys
 
         Raises:
             Exception: If generation fails after all retry attempts
@@ -728,21 +810,42 @@ Return ONLY the optimized prompt, no explanations or preamble."""
 
         # Build system prompt with compressed twin injection
         system_prompt = self._build_generation_system_prompt(
-            compressed_twin, 
+            compressed_twin,
             has_logo=bool(logo_bytes),
             allow_text=user_wants_text
         )
 
-        # Combine system prompt with user prompt
-        full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
+        # Determine if we're using multi-turn conversation
+        use_session = job_id is not None and continue_conversation
+        session = None
+        session_id = None
+
+        if use_session:
+            # Get or create session for multi-turn conversation
+            session = self.get_or_create_session(job_id, system_prompt)
+            session_id = job_id
+
+            logger.info(
+                "using_multi_turn_conversation",
+                job_id=job_id,
+                session_id=session_id,
+                operation_type=operation_type
+            )
+
+            # For multi-turn, just send the user prompt (session has context)
+            full_prompt = f"User Request: {prompt}"
+        else:
+            # For new generation, combine system prompt with user prompt
+            full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
 
         # Log the full prompt for audit trail
         logger.info(
             "image_generation_prompt",
-            system_prompt=system_prompt,
+            system_prompt=system_prompt if not use_session else "(using session context)",
             user_prompt=prompt,
             full_prompt_length=len(full_prompt),
             has_logo=bool(logo_bytes),
+            use_session=use_session,
             operation_type=operation_type
         )
 
@@ -785,14 +888,26 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                 
                 # Generate image using vision model with timeout
                 # Pass content_parts (text + optional logo images)
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self.vision_model.generate_content,
-                        content_parts,
-                        generation_config=generation_config,
-                    ),
-                    timeout=timeout
-                )
+                if use_session and session:
+                    # Use session for multi-turn conversation
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            session.send_message,
+                            content_parts,
+                            generation_config=generation_config,
+                        ),
+                        timeout=timeout
+                    )
+                else:
+                    # Direct generation for new conversations
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self.vision_model.generate_content,
+                            content_parts,
+                            generation_config=generation_config,
+                        ),
+                        timeout=timeout
+                    )
                 
                 # Extract image URI from response
                 # Note: The actual implementation depends on Gemini's response format
@@ -809,10 +924,14 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                     model_name=model_name,
                     operation_type=operation_type,
                     latency_ms=latency_ms,
-                    token_count=input_token_count
+                    token_count=input_token_count,
+                    session_id=session_id
                 )
-                
-                return image_uri
+
+                return {
+                    "image_uri": image_uri,
+                    "session_id": session_id
+                }
                 
             except (asyncio.TimeoutError, TimeoutError) as e:
                 last_exception = e
@@ -978,11 +1097,11 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         prompt_parts.append("- Follow the 60-30-10 design rule: 60% neutral, 30% primary/secondary, 10% accent")
         prompt_parts.append("")
         prompt_parts.append("## ADVANCED RENDERING TECHNIQUES:")
-        prompt_parts.append("- For logos on products: Place on FLAT label areas, patches, or stickers")
+        prompt_parts.append("- For logos on products: Render logos directly on the product surface using appropriate printing techniques (silk-screen, embossing, engraving, direct print)")
         prompt_parts.append("- For text on fabric: Add rim lighting or studio lighting to create edge contrast")
         prompt_parts.append("- For metallic/reflective surfaces: Use directional lighting to separate foreground from background")
         prompt_parts.append("- For dark backgrounds: Layer elements with drop shadows, halos, or lighter intermediate surfaces")
-        prompt_parts.append("- For curved products (bottles, cans): Show label area straight-on or use flat label mockups")
+        prompt_parts.append("- For curved products (bottles, cans): Apply graphics directly to the surface with appropriate perspective and curvature")
         prompt_parts.append("- Prioritize LEGIBILITY over strict color matching - lighting and contrast are more important than exact hex codes")
         
         return "\n".join(prompt_parts)

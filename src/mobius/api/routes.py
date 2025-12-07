@@ -1342,6 +1342,183 @@ async def cancel_job_handler(job_id: str) -> dict:
         )
 
 
+async def review_job_handler(
+    job_id: str,
+    decision: str,
+    tweak_instruction: Optional[str] = None,
+) -> dict:
+    """
+    Handle user review decision for jobs in needs_review status.
+
+    Allows users to:
+    - approve: Mark job as complete despite low compliance score
+    - tweak: Apply custom instruction and continue in same conversation
+    - regenerate: Start fresh with new conversation session
+
+    Args:
+        job_id: Job UUID
+        decision: User decision - "approve", "tweak", or "regenerate"
+        tweak_instruction: Required if decision is "tweak"
+
+    Returns:
+        Dictionary with job_id, decision, and resumed status
+
+    Raises:
+        NotFoundError: If job does not exist
+        ValidationError: If job is not in needs_review status or invalid decision
+    """
+    from mobius.storage.jobs import JobStorage
+    from mobius.tools.gemini import GeminiClient
+
+    request_id = generate_request_id()
+    set_request_id(request_id)
+
+    logger.info(
+        "review_job_request",
+        request_id=request_id,
+        job_id=job_id,
+        decision=decision
+    )
+
+    try:
+        # Validate decision
+        if decision not in ["approve", "tweak", "regenerate"]:
+            raise ValidationError(
+                code="INVALID_DECISION",
+                message=f"Invalid decision '{decision}'. Must be 'approve', 'tweak', or 'regenerate'",
+                request_id=request_id,
+                details={"valid_decisions": ["approve", "tweak", "regenerate"]}
+            )
+
+        # Load job from storage
+        job_storage = JobStorage()
+        job = await job_storage.get_job(job_id)
+
+        if not job:
+            logger.warning("job_not_found", request_id=request_id, job_id=job_id)
+            raise NotFoundError(resource="job", resource_id=job_id, request_id=request_id)
+
+        # Verify job is in needs_review status
+        if job.status != "needs_review":
+            logger.warning(
+                "job_not_in_review_status",
+                request_id=request_id,
+                job_id=job_id,
+                current_status=job.status
+            )
+            raise ValidationError(
+                code="JOB_NOT_IN_REVIEW",
+                message=f"Job is not in needs_review status (current: {job.status})",
+                request_id=request_id,
+                details={"current_status": job.status}
+            )
+
+        # Update state with user decision
+        state = job.state or {}
+        state["user_decision"] = decision
+
+        if decision == "approve":
+            # Override approval and mark as complete
+            state["is_approved"] = True
+            state["approval_override"] = True
+            await job_storage.update_job(job_id, {
+                "status": "completed",
+                "state": state
+            })
+
+            logger.info(
+                "job_approved_by_user",
+                request_id=request_id,
+                job_id=job_id
+            )
+
+            return {
+                "job_id": job_id,
+                "decision": decision,
+                "status": "completed",
+                "message": "Job approved and completed",
+                "request_id": request_id
+            }
+
+        elif decision == "tweak":
+            # Validate tweak_instruction is provided
+            if not tweak_instruction:
+                raise ValidationError(
+                    code="TWEAK_INSTRUCTION_REQUIRED",
+                    message="tweak_instruction is required when decision is 'tweak'",
+                    request_id=request_id
+                )
+
+            # Store user's instruction for correction node
+            state["user_tweak_instruction"] = tweak_instruction
+
+            logger.info(
+                "job_tweak_requested",
+                request_id=request_id,
+                job_id=job_id,
+                instruction=tweak_instruction
+            )
+
+        elif decision == "regenerate":
+            # Clear session to start fresh
+            session_id = state.get("session_id")
+            if session_id:
+                gemini_client = GeminiClient()
+                gemini_client.clear_session(job_id)
+                state["session_id"] = None
+
+            logger.info(
+                "job_regenerate_requested",
+                request_id=request_id,
+                job_id=job_id,
+                session_cleared=bool(session_id)
+            )
+
+        # Update state and resume workflow
+        state["needs_review"] = False
+        state["review_requested_at"] = None
+
+        await job_storage.update_job(job_id, {
+            "status": "correcting",  # Resume from correction
+            "state": state
+        })
+
+        # TODO: Resume LangGraph workflow execution
+        # This would typically involve calling the workflow runner
+        # For now, we update the state and the workflow should continue
+        # when the job processor picks it up
+
+        logger.info(
+            "review_job_success",
+            request_id=request_id,
+            job_id=job_id,
+            decision=decision
+        )
+
+        return {
+            "job_id": job_id,
+            "decision": decision,
+            "status": "resumed",
+            "message": f"Job resumed with decision: {decision}",
+            "request_id": request_id
+        }
+
+    except (NotFoundError, ValidationError):
+        raise
+    except Exception as e:
+        logger.error(
+            "review_job_failed",
+            request_id=request_id,
+            job_id=job_id,
+            error=str(e)
+        )
+        raise StorageError(
+            operation="review_job",
+            request_id=request_id,
+            details={"error": str(e)}
+        )
+
+
 # Feedback Handlers
 
 async def submit_feedback_handler(

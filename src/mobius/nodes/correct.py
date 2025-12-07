@@ -53,47 +53,77 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
     # Get the most recent audit result
     last_audit = audit_history[-1]
     
+    # Check if user provided a custom tweak instruction
+    user_instruction = state.get("user_tweak_instruction")
+
+    if user_instruction:
+        # Use user's custom instruction for targeted editing
+        correction_prompt = f"Please modify the current image: {user_instruction}. Preserve all other elements that are working well."
+
+        logger.info(
+            "applying_user_tweak",
+            job_id=state.get("job_id"),
+            user_instruction=user_instruction,
+            correction_prompt=correction_prompt
+        )
+
+        return {
+            "prompt": correction_prompt,
+            "user_tweak_instruction": None,  # Clear after use
+            "status": "correcting"
+        }
+
     # Extract fix suggestion from audit
     # The audit result structure includes a summary field that may contain suggestions
     fix_suggestion = None
-    
+
     # Try to extract fix suggestion from summary
     summary = last_audit.get("summary", "")
     if summary and "suggest" in summary.lower():
         fix_suggestion = summary
-    
+
     # Check if there are specific violations with suggestions
     categories = last_audit.get("categories", [])
     violation_suggestions = []
+    violation_severities = []
+
     for category in categories:
         violations = category.get("violations", [])
         for violation in violations:
             if violation and isinstance(violation, dict):
                 # Extract the fix_suggestion from the violation dict
                 fix_text = violation.get("fix_suggestion") or violation.get("description")
+                severity = violation.get("severity", "medium")
                 if fix_text:
                     violation_suggestions.append(fix_text)
-    
+                    violation_severities.append(severity)
+
     if violation_suggestions:
-        fix_suggestion = " ".join(violation_suggestions[:3])  # Use top 3 violations
-    
+        # Prioritize high/critical violations
+        prioritized_suggestions = []
+        for suggestion, severity in zip(violation_suggestions, violation_severities):
+            if severity in ["high", "critical"]:
+                prioritized_suggestions.insert(0, suggestion)
+            else:
+                prioritized_suggestions.append(suggestion)
+
+        fix_suggestion = " ".join(prioritized_suggestions[:3])  # Use top 3 violations
+
     # Apply correction if we have a fix suggestion
     if fix_suggestion and fix_suggestion.lower() not in ["null", "none", ""]:
-        original_prompt = state["prompt"]
-        enhanced_prompt = f"{original_prompt}. IMPORTANT CORRECTION: {fix_suggestion}"
-        
+        # Create targeted edit prompt for multi-turn conversation
+        correction_prompt = f"Please modify the current image: {fix_suggestion}. Preserve all other elements that are working well."
+
         logger.info(
-            "applying_correction",
+            "applying_ai_correction",
             job_id=state.get("job_id"),
             fix_suggestion=fix_suggestion,
-            original_prompt=original_prompt,
-            enhanced_prompt=enhanced_prompt,
-            original_prompt_length=len(original_prompt),
-            enhanced_prompt_length=len(enhanced_prompt)
+            correction_prompt=correction_prompt,
+            violation_count=len(violation_suggestions)
         )
-        
+
         return {
-            "prompt": enhanced_prompt,
+            "prompt": correction_prompt,
             "status": "correcting"
         }
     else:
@@ -102,7 +132,7 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
             job_id=state.get("job_id"),
             message="No specific fix suggested, retrying with original prompt"
         )
-        
+
         return {
             "status": "correcting"
         }

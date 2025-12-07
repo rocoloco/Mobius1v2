@@ -8,9 +8,10 @@ from typing import TypedDict, List, Optional, Any
 from datetime import datetime
 
 
-class JobState(TypedDict):
+class JobState(TypedDict, total=False):
     """State for the generation workflow."""
 
+    # Required fields
     job_id: str
     brand_id: str
     prompt: str
@@ -21,12 +22,22 @@ class JobState(TypedDict):
     audit_history: List[dict]
     compliance_scores: List[dict]
     is_approved: bool
-    status: str  # "pending", "generating", "auditing", "correcting", "completed", "failed"
+    status: str  # "pending", "generating", "auditing", "correcting", "needs_review", "completed", "failed"
     created_at: datetime
     updated_at: datetime
     webhook_url: Optional[str]
     template_id: Optional[str]
     generation_params: Optional[dict]
+
+    # Session management fields
+    session_id: Optional[str]
+
+    # Interactive review fields
+    needs_review: bool
+    review_requested_at: Optional[str]  # ISO timestamp
+    user_decision: Optional[str]  # "approve" | "tweak" | "regenerate"
+    user_tweak_instruction: Optional[str]
+    approval_override: bool  # True if user approved despite low score
 
 
 class IngestionState(TypedDict):
