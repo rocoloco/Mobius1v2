@@ -1502,10 +1502,25 @@ async def review_job_handler(
             "state": state
         })
 
-        # TODO: Resume LangGraph workflow execution
-        # This would typically involve calling the workflow runner
-        # For now, we update the state and the workflow should continue
-        # when the job processor picks it up
+        logger.info(
+            "resuming_workflow",
+            request_id=request_id,
+            job_id=job_id,
+            decision=decision
+        )
+
+        # Resume LangGraph workflow from correction node
+        from mobius.graphs.generation import run_generation_workflow
+
+        # Run workflow asynchronously (don't await - let it run in background)
+        import asyncio
+        asyncio.create_task(
+            run_generation_workflow(
+                brand_id=job.brand_id,
+                prompt=job.prompt,
+                job_id=job_id,
+            )
+        )
 
         logger.info(
             "review_job_success",

@@ -373,6 +373,47 @@ async def v1_cancel_job(request: dict):
         }, 500
 
 
+@app.function(image=image, secrets=secrets)
+@modal.web_endpoint(method="POST", label="v1-review-job")
+async def v1_review_job(request: dict):
+    """
+    POST /v1/jobs/{job_id}/review
+
+    Submit review decision for jobs in needs_review status.
+    """
+    from mobius.api.routes import review_job_handler
+    from mobius.api.errors import MobiusError
+    import structlog
+
+    logger = structlog.get_logger()
+
+    try:
+        job_id = request.get("job_id")
+        decision = request.get("decision")
+        tweak_instruction = request.get("tweak_instruction")
+
+        result = await review_job_handler(
+            job_id=job_id,
+            decision=decision,
+            tweak_instruction=tweak_instruction
+        )
+
+        return result
+
+    except MobiusError as e:
+        logger.error("endpoint_error", error=str(e))
+        return {"error": e.error_response.model_dump()}, e.status_code
+    except Exception as e:
+        logger.error("unexpected_error", error=str(e))
+        return {
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred",
+                "details": {"error": str(e)},
+            }
+        }, 500
+
+
 # Template Management Endpoints
 
 @app.function(image=image, secrets=secrets)
