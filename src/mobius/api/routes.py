@@ -3761,8 +3761,18 @@ async def get_brand_graph_handler(brand_id: str) -> dict:
     """
     GET /v1/brands/{brand_id}/graph
 
-    Get graph relationships for a brand.
+    Get the complete Brand Graph - the machine-readable operating system
+    for the brand. This is the MOAT: by exposing this as an API, client
+    developers will integrate it into their internal tools, creating lock-in.
+    
+    Returns the full structured brand data including:
+    - Identity core (archetype, voice vectors)
+    - Visual tokens (colors, typography, logos)
+    - Contextual rules (channel-specific governance)
+    - Asset graph (logo variants, templates, patterns)
+    - Relationship data from Neo4j graph database
     """
+    from mobius.storage.brands import BrandStorage
     from mobius.storage.graph import graph_storage
 
     request_id = generate_request_id()
@@ -3774,16 +3784,108 @@ async def get_brand_graph_handler(brand_id: str) -> dict:
         brand_id=brand_id
     )
 
-    # Get brand colors from graph
-    colors = await graph_storage.get_brand_colors(brand_id)
+    # Get full brand from PostgreSQL (source of truth)
+    brand_storage = BrandStorage()
+    brand = await brand_storage.get_brand(brand_id)
+    
+    if not brand:
+        raise NotFoundError(
+            code="BRAND_NOT_FOUND",
+            message=f"Brand {brand_id} not found",
+            request_id=request_id
+        )
 
-    return {
-        "brand_id": brand_id,
-        "colors": colors,
+    # Get relationship data from Neo4j graph
+    colors_with_relationships = await graph_storage.get_brand_colors(brand_id)
+
+    # Build the Brand Graph response
+    brand_graph = {
+        "brand_id": brand.brand_id,
+        "name": brand.name,
+        "version": brand.guidelines.version if brand.guidelines else "1.0.0",
+        
+        # Identity Core (MOAT: Strategic positioning)
+        "identity_core": None,
+        
+        # Visual Tokens (MOAT: Structured design system)
+        "visual_tokens": {
+            "colors": [
+                {
+                    "hex": c.hex,
+                    "name": c.name,
+                    "semantic_role": c.usage,
+                    "usage_weight": c.usage_weight,
+                    "context": c.context
+                }
+                for c in brand.guidelines.colors
+            ] if brand.guidelines else [],
+            "typography": [
+                {
+                    "family": t.family,
+                    "weights": t.weights,
+                    "usage": t.usage
+                }
+                for t in brand.guidelines.typography
+            ] if brand.guidelines else [],
+            "logos": [
+                {
+                    "variant": logo.variant_name,
+                    "url": logo.url,
+                    "min_width_px": logo.min_width_px,
+                    "clear_space_ratio": logo.clear_space_ratio,
+                    "forbidden_backgrounds": logo.forbidden_backgrounds
+                }
+                for logo in brand.guidelines.logos
+            ] if brand.guidelines else []
+        },
+        
+        # Contextual Rules (MOAT: Channel-specific governance)
+        "contextual_rules": [
+            {
+                "context": rule.context,
+                "rule": rule.rule,
+                "priority": rule.priority,
+                "applies_to": rule.applies_to
+            }
+            for rule in brand.guidelines.contextual_rules
+        ] if brand.guidelines and brand.guidelines.contextual_rules else [],
+        
+        # Asset Graph (MOAT: Single source of truth)
+        "asset_graph": None,
+        
+        # Relationship Intelligence (from Neo4j)
         "relationships": {
-            "color_count": len(colors)
+            "color_count": len(colors_with_relationships),
+            "colors_with_usage": colors_with_relationships
+        },
+        
+        # Metadata
+        "metadata": {
+            "created_at": brand.created_at,
+            "updated_at": brand.updated_at,
+            "source_filename": brand.guidelines.source_filename if brand.guidelines else None,
+            "ingested_at": brand.guidelines.ingested_at if brand.guidelines else None
         }
     }
+    
+    # Add identity core if present
+    if brand.guidelines and brand.guidelines.identity_core:
+        brand_graph["identity_core"] = {
+            "archetype": brand.guidelines.identity_core.archetype,
+            "voice_vectors": brand.guidelines.identity_core.voice_vectors,
+            "negative_constraints": brand.guidelines.identity_core.negative_constraints
+        }
+    
+    # Add asset graph if present
+    if brand.guidelines and brand.guidelines.asset_graph:
+        brand_graph["asset_graph"] = {
+            "logos": brand.guidelines.asset_graph.logos,
+            "templates": brand.guidelines.asset_graph.templates,
+            "patterns": brand.guidelines.asset_graph.patterns,
+            "photography_style": brand.guidelines.asset_graph.photography_style
+        }
+
+    return brand_graph
 
 
 async def find_color_relationships_handler(hex: str) -> dict:

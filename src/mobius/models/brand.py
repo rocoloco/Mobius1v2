@@ -103,6 +103,45 @@ class VoiceTone(BaseModel):
     example_phrases: List[str] = Field(description="Example phrases that embody the brand voice")
 
 
+class IdentityCore(BaseModel):
+    """
+    Brand identity archetype and voice vectors.
+    
+    This is the "soul" of the brand - the strategic positioning that informs
+    all creative decisions. By capturing this as structured data, we create
+    lock-in: clients cannot easily migrate to another platform because we
+    own the machine-readable definition of their brand identity.
+    """
+    
+    archetype: Optional[str] = Field(
+        None,
+        description=(
+            "Brand archetype (e.g., 'The Sage', 'The Hero', 'The Rebel'). "
+            "Based on Jungian archetypes, this guides tone and visual style."
+        )
+    )
+    
+    voice_vectors: Dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "Voice dimensions as 0.0-1.0 scores. Examples:\n"
+            "- formal: 0.8 (very formal) vs 0.2 (casual)\n"
+            "- witty: 0.7 (playful) vs 0.1 (serious)\n"
+            "- urgent: 0.9 (time-sensitive) vs 0.2 (relaxed)\n"
+            "- technical: 0.8 (jargon-heavy) vs 0.2 (accessible)\n"
+            "These vectors enable fine-grained tone control in generation."
+        )
+    )
+    
+    negative_constraints: List[str] = Field(
+        default_factory=list,
+        description=(
+            "High-level 'never do this' rules that apply across all contexts. "
+            "Examples: 'No drop shadows', 'No neon colors', 'Never use gradients on text'"
+        )
+    )
+
+
 # --- Component 3: The Hard Rules (Audit Logic) ---
 
 
@@ -125,7 +164,97 @@ class BrandRule(BaseModel):
     )
 
 
+class ContextualRule(BaseModel):
+    """
+    Context-specific brand rule for different channels and mediums.
+    
+    This enables channel-specific governance (LinkedIn vs. Instagram,
+    print vs. digital) which is critical for enterprise brands that
+    need different rules for different contexts.
+    
+    MOAT VALUE: By capturing context-specific rules, we make it harder
+    for clients to migrate because this nuanced governance logic is
+    difficult to replicate.
+    """
+    
+    context: str = Field(
+        description=(
+            "Context identifier. Examples:\n"
+            "- 'social_media_linkedin' - LinkedIn posts\n"
+            "- 'social_media_instagram' - Instagram posts\n"
+            "- 'print_packaging' - Physical packaging\n"
+            "- 'email_marketing' - Email campaigns\n"
+            "- 'web_landing_page' - Website landing pages"
+        )
+    )
+    
+    rule: str = Field(
+        description=(
+            "Context-specific rule text. Examples:\n"
+            "- 'Images must contain human subjects; 20% overlay opacity maximum'\n"
+            "- 'CMYK only; minimal whitespace 15mm'\n"
+            "- 'Maximum 3 colors per composition'"
+        )
+    )
+    
+    priority: int = Field(
+        description=(
+            "Rule priority (1-10, higher = more important). "
+            "Used to resolve conflicts when multiple rules apply."
+        ),
+        ge=1,
+        le=10
+    )
+    
+    applies_to: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Asset types this rule applies to. Examples: "
+            "['image', 'video', 'document']. Empty list = applies to all."
+        )
+    )
+
+
 # --- The Aggregate Digital Twin ---
+
+
+class AssetGraph(BaseModel):
+    """
+    Structured asset inventory for the brand.
+    
+    Instead of just storing logo URLs in LogoRule, we maintain a
+    comprehensive asset graph that tracks all brand assets with
+    metadata and relationships.
+    
+    MOAT VALUE: This becomes the single source of truth for all
+    brand assets, making it difficult for clients to migrate.
+    """
+    
+    logos: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Logo variants with semantic keys. Examples:\n"
+            "- 'primary': 's3://.../logo_main.svg'\n"
+            "- 'reversed': 's3://.../logo_white.svg'\n"
+            "- 'icon': 's3://.../logo_icon.png'\n"
+            "- 'wordmark': 's3://.../logo_wordmark.svg'"
+        )
+    )
+    
+    templates: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Approved templates with semantic keys (e.g., 'social_post', 'email_header')"
+    )
+    
+    patterns: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Design patterns and textures (e.g., 'background_texture', 'divider_pattern')"
+    )
+    
+    photography_style: Optional[str] = Field(
+        None,
+        description="URL to photography style guide or example images"
+    )
 
 
 class BrandGuidelines(BaseModel):
@@ -134,8 +263,18 @@ class BrandGuidelines(BaseModel):
 
     Aggregates all brand elements into a structured, queryable format
     that supports automated compliance checking and governance.
+    
+    This is the "Brand Graph" - the machine-readable operating system
+    for the brand that creates lock-in by owning the structured data.
     """
 
+    # Core Identity (MOAT: Strategic positioning)
+    identity_core: Optional[IdentityCore] = Field(
+        None,
+        description="Brand archetype, voice vectors, and negative constraints"
+    )
+
+    # Visual DNA
     colors: List[Color] = Field(
         default_factory=list, description="Brand color palette with usage rules"
     )
@@ -143,14 +282,31 @@ class BrandGuidelines(BaseModel):
         default_factory=list, description="Typography specifications"
     )
     logos: List[LogoRule] = Field(default_factory=list, description="Logo usage rules")
+    
+    # Verbal Soul
     voice: Optional[VoiceTone] = Field(None, description="Brand voice and tone guidelines")
+    
+    # Governance Rules
     rules: List[BrandRule] = Field(
         default_factory=list, description="Governance rules for automated auditing"
+    )
+    
+    # Context-Specific Rules (MOAT: Channel-specific governance)
+    contextual_rules: List[ContextualRule] = Field(
+        default_factory=list,
+        description="Context-specific rules for different channels and mediums"
+    )
+    
+    # Asset Inventory (MOAT: Single source of truth for assets)
+    asset_graph: Optional[AssetGraph] = Field(
+        None,
+        description="Structured inventory of all brand assets"
     )
 
     # Metadata for versioning
     source_filename: Optional[str] = Field(None, description="Original PDF filename")
     ingested_at: Optional[str] = Field(None, description="ISO timestamp of ingestion")
+    version: str = Field(default="1.0.0", description="Brand guidelines version")
 
 
 class CompressedDigitalTwin(BaseModel):
