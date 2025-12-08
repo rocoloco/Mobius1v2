@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # Storage buckets
     brands_bucket: str = "brands"
     assets_bucket: str = "assets"
+
+    # Neo4j Graph Database
+    neo4j_uri: str = ""
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    neo4j_database: str = "neo4j"
+    graph_sync_enabled: bool = True
     
     @field_validator("gemini_api_key")
     @classmethod

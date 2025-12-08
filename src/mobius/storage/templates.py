@@ -6,8 +6,10 @@ Provides CRUD operations for template entities in Supabase.
 
 from mobius.models.template import Template
 from mobius.storage.database import get_supabase_client
+from mobius.storage.graph import graph_storage
 from typing import List, Optional
 from datetime import datetime, timezone
+import asyncio
 import structlog
 
 logger = structlog.get_logger()
@@ -43,7 +45,12 @@ class TemplateStorage:
         result = self.client.table("templates").insert(data).execute()
 
         logger.info("template_created", template_id=template.template_id)
-        return Template.model_validate(result.data[0])
+        created_template = Template.model_validate(result.data[0])
+
+        # Sync to Neo4j graph database (fully async, non-blocking)
+        asyncio.create_task(graph_storage.sync_template(created_template))
+
+        return created_template
 
     async def get_template(self, template_id: str) -> Optional[Template]:
         """

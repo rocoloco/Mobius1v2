@@ -35,7 +35,14 @@ class GeminiClient:
 
         # Initialize both model instances
         self.reasoning_model = genai.GenerativeModel(settings.reasoning_model)
-        self.vision_model = genai.GenerativeModel(settings.vision_model)
+
+        # Initialize vision model for image generation
+        self.vision_model = genai.GenerativeModel(
+            model_name=settings.vision_model,
+            generation_config=GenerationConfig(
+                temperature=0.7,
+            )
+        )
 
         # Session management for multi-turn conversations
         self.active_sessions: Dict[str, Any] = {}
@@ -138,9 +145,11 @@ class GeminiClient:
 
         # Return existing session if found
         if job_id in self.active_sessions:
+            session_age = time.time() - self.session_created_at[job_id]
             logger.info(
-                "session_retrieved",
+                "session_reused",
                 job_id=job_id,
+                session_age_seconds=round(session_age, 2),
                 operation_type="session_management"
             )
             return self.active_sessions[job_id]
@@ -153,6 +162,7 @@ class GeminiClient:
         logger.info(
             "session_created",
             job_id=job_id,
+            total_active_sessions=len(self.active_sessions),
             operation_type="session_management"
         )
 
@@ -753,6 +763,7 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         original_prompt: str = None,
         job_id: Optional[str] = None,
         continue_conversation: bool = False,
+        previous_image_bytes: bytes = None,
         **generation_params
     ) -> Dict[str, str]:
         """
@@ -770,6 +781,7 @@ Return ONLY the optimized prompt, no explanations or preamble."""
             original_prompt: Original user prompt (before optimization) for intent detection
             job_id: Optional job identifier for session tracking
             continue_conversation: If True, continues existing conversation for iterative edits
+            previous_image_bytes: Optional bytes of previous image for tweak/edit operations
             **generation_params: Additional generation parameters (temperature, etc.)
 
         Returns:
@@ -802,6 +814,8 @@ Return ONLY the optimized prompt, no explanations or preamble."""
             prompt_length=len(prompt),
             has_logo=bool(logo_bytes),
             logo_count=len(logo_bytes) if logo_bytes else 0,
+            has_previous_image=bool(previous_image_bytes),
+            previous_image_size=len(previous_image_bytes) if previous_image_bytes else 0,
             user_wants_text=user_wants_text,
             model_name=model_name,
             operation_type=operation_type,
@@ -832,16 +846,14 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                 operation_type=operation_type
             )
 
-            # For multi-turn, just send the user prompt (session has context)
-            full_prompt = f"User Request: {prompt}"
-        else:
-            # For new generation, combine system prompt with user prompt
-            full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
+        # CRITICAL: Always send system prompt, even in multi-turn
+        # Session preserves generated images but NOT system prompts or input images
+        full_prompt = f"{system_prompt}\n\nUser Request: {prompt}"
 
         # Log the full prompt for audit trail
         logger.info(
             "image_generation_prompt",
-            system_prompt=system_prompt if not use_session else "(using session context)",
+            system_prompt_length=len(system_prompt),
             user_prompt=prompt,
             full_prompt_length=len(full_prompt),
             has_logo=bool(logo_bytes),
@@ -855,9 +867,23 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         )
 
         # Build multi-modal content list
-        # Format: [text_prompt, logo_image_1, logo_image_2, ...]
+        # Format: [text_prompt, previous_image (if tweak), logo_image_1, logo_image_2, ...]
         content_parts = [full_prompt]
+        
+        # Add previous image if this is a tweak/edit operation
+        # This gives Gemini context of what to modify
+        if previous_image_bytes:
+            content_parts.append({
+                "mime_type": "image/jpeg",  # Previous images are typically JPEG
+                "data": previous_image_bytes
+            })
+            logger.info(
+                "adding_previous_image_for_tweak",
+                image_size_bytes=len(previous_image_bytes),
+                operation_type=operation_type
+            )
 
+        # Add logos only if provided (smart logo strategy from generate.py)
         if logo_bytes:
             for idx, logo_data in enumerate(logo_bytes):
                 content_parts.append({
@@ -885,11 +911,19 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                     timeout_seconds=timeout,
                     model_name=model_name
                 )
-                
+
                 # Generate image using vision model with timeout
                 # Pass content_parts (text + optional logo images)
                 if use_session and session:
                     # Use session for multi-turn conversation
+                    logger.info(
+                        "sending_message_to_session",
+                        job_id=job_id,
+                        content_part_count=len(content_parts),
+                        content_types=[type(part).__name__ for part in content_parts],
+                        is_correction=continue_conversation,
+                        operation_type=operation_type
+                    )
                     result = await asyncio.wait_for(
                         asyncio.to_thread(
                             session.send_message,
@@ -1228,9 +1262,14 @@ Return ONLY the optimized prompt, no explanations or preamble."""
             generation_config.response_schema = ComplianceScore
             
             # Generate compliance audit using reasoning model with multimodal input
-            result = self.reasoning_model.generate_content(
-                [audit_prompt, {"mime_type": mime_type, "data": image_data}],
-                generation_config=generation_config,
+            # Add timeout to prevent hanging (120 seconds for audit)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.reasoning_model.generate_content,
+                    [audit_prompt, {"mime_type": mime_type, "data": image_data}],
+                    generation_config=generation_config,
+                ),
+                timeout=120.0  # 2 minute timeout for audit
             )
             
             # Parse response as ComplianceScore

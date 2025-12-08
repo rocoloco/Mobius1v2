@@ -6,8 +6,10 @@ Provides CRUD operations for feedback entities in Supabase.
 
 from pydantic import BaseModel
 from mobius.storage.database import get_supabase_client
+from mobius.storage.graph import graph_storage
 from typing import List, Optional
 from datetime import datetime
+import asyncio
 import structlog
 
 logger = structlog.get_logger()
@@ -68,7 +70,19 @@ class FeedbackStorage:
         result = self.client.table("feedback").insert(data).execute()
 
         logger.info("feedback_created", feedback_id=result.data[0]["feedback_id"])
-        return Feedback.model_validate(result.data[0])
+        created_feedback = Feedback.model_validate(result.data[0])
+
+        # Sync to Neo4j graph database (fully async, non-blocking)
+        asyncio.create_task(graph_storage.sync_feedback(
+            feedback_id=created_feedback.feedback_id,
+            asset_id=asset_id,
+            brand_id=brand_id,
+            action=action,
+            reason=reason,
+            timestamp=created_feedback.created_at.isoformat()
+        ))
+
+        return created_feedback
 
     async def get_feedback(self, feedback_id: str) -> Optional[Feedback]:
         """

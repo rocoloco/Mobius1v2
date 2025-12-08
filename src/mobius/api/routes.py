@@ -1479,18 +1479,23 @@ async def review_job_handler(
             )
 
         elif decision == "regenerate":
-            # Clear session to start fresh
+            # Clear session to start completely fresh
             session_id = state.get("session_id")
             if session_id:
                 gemini_client = GeminiClient()
                 gemini_client.clear_session(job_id)
-                state["session_id"] = None
+
+            # Reset ALL state for fresh generation
+            state["session_id"] = None
+            state["attempt_count"] = 0  # CRITICAL: Forces continue_conversation=False
+            state["current_image_url"] = None
+            state["audit_history"] = []
 
             logger.info(
-                "job_regenerate_requested",
+                "regenerate_state_reset",
                 request_id=request_id,
                 job_id=job_id,
-                session_cleared=bool(session_id)
+                cleared_session=bool(session_id)
             )
 
         # Update state and resume workflow
@@ -1548,6 +1553,281 @@ async def review_job_handler(
         )
         raise StorageError(
             operation="review_job",
+            request_id=request_id,
+            details={"error": str(e)}
+        )
+
+
+async def tweak_completed_job_handler(
+    job_id: str,
+    tweak_instruction: str,
+) -> dict:
+    """
+    Handle tweak request for completed jobs to enable multi-turn refinement.
+
+    Allows users to refine auto-approved images (>= 80% compliance) using
+    multi-turn conversation. The session is preserved and the tweak instruction
+    is applied to the existing image.
+
+    Args:
+        job_id: Job UUID
+        tweak_instruction: User instruction for refinement
+
+    Returns:
+        Dictionary with job_id and resumed status
+
+    Raises:
+        NotFoundError: If job does not exist
+        ValidationError: If job is not completed or tweak_instruction is empty
+    """
+    from mobius.storage.jobs import JobStorage
+    from mobius.graphs.generation import create_generation_workflow
+
+    request_id = generate_request_id()
+    set_request_id(request_id)
+
+    logger.info(
+        "tweak_completed_job_request",
+        request_id=request_id,
+        job_id=job_id,
+        instruction=tweak_instruction
+    )
+
+    try:
+        # Validate tweak_instruction
+        if not tweak_instruction or not tweak_instruction.strip():
+            raise ValidationError(
+                code="TWEAK_INSTRUCTION_REQUIRED",
+                message="tweak_instruction cannot be empty",
+                request_id=request_id
+            )
+
+        # Load job from storage
+        job_storage = JobStorage()
+        job = await job_storage.get_job(job_id)
+
+        if not job:
+            logger.warning("job_not_found", request_id=request_id, job_id=job_id)
+            raise NotFoundError(resource="job", resource_id=job_id, request_id=request_id)
+
+        # Verify job is completed or needs_review (allow tweaking of both)
+        if job.status not in ["completed", "needs_review"]:
+            logger.warning(
+                "job_not_tweakable",
+                request_id=request_id,
+                job_id=job_id,
+                current_status=job.status
+            )
+            raise ValidationError(
+                code="JOB_NOT_TWEAKABLE",
+                message=f"Job must be completed or needs_review to tweak (current: {job.status})",
+                request_id=request_id,
+                details={"current_status": job.status, "allowed_statuses": ["completed", "needs_review"]}
+            )
+
+        # Load existing state from job
+        state = job.state or {}
+        
+        logger.info(
+            "tweak_loaded_state",
+            request_id=request_id,
+            job_id=job_id,
+            state_keys=list(state.keys()),
+            has_brand_id="brand_id" in state,
+            has_prompt="prompt" in state,
+            has_current_image_url="current_image_url" in state,
+            job_brand_id=job.brand_id
+        )
+        
+        # CRITICAL: Ensure all required fields are present
+        # The workflow expects these fields to be in the state
+        # Always set brand_id from job model (it's a required field on Job)
+        state["brand_id"] = job.brand_id
+        
+        # Prompt should already be in state from original generation
+        # If not, we can't proceed (no prompt to tweak)
+        if "prompt" not in state:
+            logger.error(
+                "tweak_missing_prompt",
+                request_id=request_id,
+                job_id=job_id,
+                state_keys=list(state.keys())
+            )
+            raise ValidationError(
+                code="MISSING_PROMPT",
+                message="Job state is missing the original prompt. Cannot tweak.",
+                request_id=request_id
+            )
+        
+        # Ensure job_id is set
+        state["job_id"] = job_id
+        
+        # Initialize optional fields if missing
+        if "generation_params" not in state:
+            state["generation_params"] = {}
+        if "compliance_scores" not in state:
+            state["compliance_scores"] = []
+        if "audit_history" not in state:
+            state["audit_history"] = []
+        
+        # CRITICAL: Ensure current_image_url is preserved for tweak
+        # It might be stored as image_uri or current_image_url
+        if "current_image_url" not in state:
+            state["current_image_url"] = state.get("image_uri")
+        
+        logger.info(
+            "tweak_state_image_check",
+            request_id=request_id,
+            job_id=job_id,
+            has_current_image_url=bool(state.get("current_image_url")),
+            current_image_url_length=len(state.get("current_image_url", "")) if state.get("current_image_url") else 0
+        )
+        
+        # CRITICAL: Preserve existing state for multi-turn
+        # Store user's tweak instruction
+        state["user_tweak_instruction"] = tweak_instruction
+        state["user_decision"] = "tweak"
+        state["needs_review"] = False
+        state["is_approved"] = False  # Reset approval to go through workflow again
+        
+        # CRITICAL: Increment attempt_count for multi-turn
+        # This ensures continue_conversation=True in generate_node
+        current_attempt = state.get("attempt_count", 0)
+        state["attempt_count"] = current_attempt + 1
+        
+        # Keep session_id to maintain conversation context
+        session_id = state.get("session_id")
+        
+        logger.info(
+            "tweak_state_prepared",
+            request_id=request_id,
+            job_id=job_id,
+            session_id=session_id,
+            attempt_count=state["attempt_count"],
+            has_session=bool(session_id),
+            brand_id=state["brand_id"],
+            prompt=state["prompt"][:50] if state.get("prompt") else None
+        )
+
+        # Update job status to correcting
+        await job_storage.update_job(job_id, {
+            "status": "correcting",
+            "state": state
+        })
+
+        logger.info(
+            "resuming_workflow_for_tweak",
+            request_id=request_id,
+            job_id=job_id,
+            session_id=session_id
+        )
+
+        # Resume workflow with existing state (preserves session for multi-turn)
+        import asyncio
+        from mobius.nodes.correct import correct_node
+        
+        # Create a copy of state for the async task to avoid closure issues
+        workflow_state = dict(state)
+        
+        async def resume_workflow():
+            try:
+                # CRITICAL: First run correct_node to build the tweak prompt
+                # This converts user_tweak_instruction into a proper correction prompt
+                logger.info(
+                    "running_correct_node_for_tweak",
+                    job_id=job_id,
+                    user_instruction=workflow_state.get("user_tweak_instruction"),
+                    brand_id=workflow_state.get("brand_id"),
+                    has_prompt=bool(workflow_state.get("prompt"))
+                )
+                
+                correction_result = await correct_node(workflow_state)
+                
+                # Merge correction result into state
+                workflow_state.update(correction_result)
+                
+                logger.info(
+                    "correction_prompt_built",
+                    job_id=job_id,
+                    correction_prompt=workflow_state.get("prompt", "")[:100],
+                    brand_id=workflow_state.get("brand_id")
+                )
+                
+                # Verify critical fields before invoking workflow
+                if "brand_id" not in workflow_state:
+                    raise ValueError("brand_id missing from workflow state")
+                if "prompt" not in workflow_state:
+                    raise ValueError("prompt missing from workflow state")
+                
+                # Now create workflow and resume from generate node
+                workflow = create_generation_workflow()
+                
+                logger.info(
+                    "invoking_workflow",
+                    job_id=job_id,
+                    brand_id=workflow_state.get("brand_id"),
+                    prompt=workflow_state.get("prompt", "")[:50],
+                    attempt_count=workflow_state.get("attempt_count"),
+                    has_current_image_url=bool(workflow_state.get("current_image_url"))
+                )
+                
+                # Resume with updated state (now has correction prompt)
+                final_state = await workflow.ainvoke(workflow_state)
+                
+                # Update job with final state
+                await job_storage.update_job(job_id, {
+                    "status": final_state.get("status", "completed"),
+                    "progress": 100.0,
+                    "state": final_state
+                })
+                
+                logger.info(
+                    "tweak_workflow_completed",
+                    job_id=job_id,
+                    final_status=final_state.get("status"),
+                    is_approved=final_state.get("is_approved")
+                )
+            except Exception as e:
+                logger.error(
+                    "tweak_workflow_failed",
+                    job_id=job_id,
+                    error=str(e),
+                    brand_id=workflow_state.get("brand_id"),
+                    state_keys=list(workflow_state.keys())
+                )
+                # Update job to failed status
+                await job_storage.update_job(job_id, {
+                    "status": "failed",
+                    "state": {**workflow_state, "error": str(e)}
+                })
+        
+        # Run workflow in background
+        asyncio.create_task(resume_workflow())
+
+        logger.info(
+            "tweak_completed_job_success",
+            request_id=request_id,
+            job_id=job_id
+        )
+
+        return {
+            "job_id": job_id,
+            "status": "resumed",
+            "message": "Job resumed for multi-turn tweak",
+            "request_id": request_id
+        }
+
+    except (NotFoundError, ValidationError):
+        raise
+    except Exception as e:
+        logger.error(
+            "tweak_completed_job_failed",
+            request_id=request_id,
+            job_id=job_id,
+            error=str(e)
+        )
+        raise StorageError(
+            operation="tweak_completed_job",
             request_id=request_id,
             details={"error": str(e)}
         )
@@ -3471,5 +3751,176 @@ async def legacy_generate_handler(
         request_id=request_id,
         job_id=response.get("job_id"),
     )
-    
+
     return response
+
+
+# Graph Database Query Handlers
+
+async def get_brand_graph_handler(brand_id: str) -> dict:
+    """
+    GET /v1/brands/{brand_id}/graph
+
+    Get graph relationships for a brand.
+    """
+    from mobius.storage.graph import graph_storage
+
+    request_id = generate_request_id()
+    set_request_id(request_id)
+
+    logger.info(
+        "brand_graph_request",
+        request_id=request_id,
+        brand_id=brand_id
+    )
+
+    # Get brand colors from graph
+    colors = await graph_storage.get_brand_colors(brand_id)
+
+    return {
+        "brand_id": brand_id,
+        "colors": colors,
+        "relationships": {
+            "color_count": len(colors)
+        }
+    }
+
+
+async def find_color_relationships_handler(hex: str) -> dict:
+    """
+    GET /v1/colors/{hex}/brands
+
+    Find all brands using a specific color.
+    """
+    from mobius.storage.graph import graph_storage
+
+    # Ensure hex code has # prefix
+    if not hex.startswith("#"):
+        hex = f"#{hex}"
+
+    request_id = generate_request_id()
+    set_request_id(request_id)
+
+    logger.info(
+        "color_relationships_request",
+        request_id=request_id,
+        hex=hex
+    )
+
+    brands = await graph_storage.find_brands_using_color(hex)
+
+    return {
+        "color": hex,
+        "brands": brands,
+        "brand_count": len(brands)
+    }
+
+
+async def find_similar_brands_handler(brand_id: str, min_shared_colors: int = 3) -> dict:
+    """
+    GET /v1/brands/{brand_id}/similar
+
+    Find brands with similar color palettes.
+    """
+    from mobius.storage.graph import graph_storage
+
+    request_id = generate_request_id()
+    set_request_id(request_id)
+
+    logger.info(
+        "similar_brands_request",
+        request_id=request_id,
+        brand_id=brand_id,
+        min_shared_colors=min_shared_colors
+    )
+
+    similar_brands = await graph_storage.find_similar_brands(
+        brand_id, min_shared_colors
+    )
+
+    return {
+        "brand_id": brand_id,
+        "similar_brands": similar_brands,
+        "count": len(similar_brands)
+    }
+
+
+async def find_color_pairings_handler(hex: str, min_samples: int = 5) -> dict:
+    """
+    GET /v1/colors/{hex}/pairings
+
+    Find colors that pair well with a given color.
+    MOAT FEATURE - relationship intelligence.
+    """
+    from mobius.storage.graph import graph_storage
+
+    # Ensure hex code has # prefix
+    if not hex.startswith("#"):
+        hex = f"#{hex}"
+
+    request_id = generate_request_id()
+    set_request_id(request_id)
+
+    logger.info(
+        "color_pairings_request",
+        request_id=request_id,
+        hex=hex,
+        min_samples=min_samples
+    )
+
+    pairings = await graph_storage.find_color_pairings(hex, min_samples)
+
+    return {
+        "color": hex,
+        "pairings": pairings,
+        "pairing_count": len(pairings)
+    }
+
+
+async def graph_health_check_handler() -> dict:
+    """
+    GET /v1/health/graph
+
+    Check Neo4j graph database health and stats.
+    """
+    from mobius.storage.graph import graph_storage
+
+    request_id = generate_request_id()
+    set_request_id(request_id)
+
+    logger.info("graph_health_check", request_id=request_id)
+
+    if not graph_storage._is_enabled():
+        return {
+            "status": "disabled",
+            "message": "Graph database not configured"
+        }
+
+    try:
+        async with graph_storage.driver.session() as session:
+            # Test query
+            result = await session.run("MATCH (n) RETURN COUNT(n) as node_count")
+            record = await result.single()
+            node_count = record["node_count"]
+
+            # Get stats by label
+            result = await session.run("""
+                MATCH (n)
+                RETURN labels(n)[0] as label, COUNT(n) as count
+                ORDER BY count DESC
+            """)
+            stats = [dict(record) async for record in result]
+
+            return {
+                "status": "healthy",
+                "node_count": node_count,
+                "stats_by_label": stats,
+                "database": graph_storage.driver._config.database
+            }
+
+    except Exception as e:
+        logger.error("graph_health_check_failed", error=str(e))
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }

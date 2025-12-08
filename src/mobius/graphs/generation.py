@@ -178,15 +178,16 @@ def route_after_audit(state: JobState) -> Literal["correct", "complete", "failed
     if user_decision == "approve":
         return "complete"
 
-    if user_decision in ["regenerate", "tweak"]:
-        # Continue to correction with user's instruction
-        return "correct"
-
-    # Auto-approve if compliant
-    if state["is_approved"]:
+    # Auto-approve if compliant (check this BEFORE user_decision to allow tweaked images to complete)
+    if state.get("is_approved"):
         return "complete"
 
-    # Check if in review threshold (70-95%)
+    # Only route to correct if user requested tweak AND there's still a tweak instruction pending
+    # (user_tweak_instruction is cleared after being applied in correct_node)
+    if user_decision in ["regenerate", "tweak"] and state.get("user_tweak_instruction"):
+        return "correct"
+
+    # Check compliance score and route accordingly
     compliance_scores = state.get("compliance_scores", [])
     if compliance_scores:
         latest_score = compliance_scores[-1]
@@ -201,13 +202,24 @@ def route_after_audit(state: JobState) -> Literal["correct", "complete", "failed
                 threshold_range="70-95%"
             )
             return "needs_review"
+        
+        # If score is below 70% on first attempt, pause for user review
+        # (Don't auto-correct without user input)
+        if overall_score < 70 and state["attempt_count"] == 1:
+            logger.info(
+                "routing_to_needs_review_low_score",
+                job_id=state.get("job_id"),
+                overall_score=overall_score,
+                reason="First attempt scored below 70%, needs user review"
+            )
+            return "needs_review"
 
     # Auto-fail if max attempts reached
     max_attempts = getattr(settings, 'max_generation_attempts', DEFAULT_MAX_ATTEMPTS)
     if state["attempt_count"] >= max_attempts:
         return "failed"
 
-    # Auto-correct if below threshold and attempts remain
+    # Auto-correct if below threshold and attempts remain (only after user decision)
     return "correct"
 
 

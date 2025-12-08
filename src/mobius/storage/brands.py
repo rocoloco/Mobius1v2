@@ -6,8 +6,10 @@ Provides CRUD operations for brand entities in Supabase.
 
 from mobius.models.brand import Brand
 from mobius.storage.database import get_supabase_client
+from mobius.storage.graph import graph_storage
 from typing import List, Optional
 from datetime import datetime, timezone
+import asyncio
 import structlog
 
 logger = structlog.get_logger()
@@ -39,7 +41,12 @@ class BrandStorage:
         result = self.client.table("brands").insert(data).execute()
 
         logger.info("brand_created", brand_id=brand.brand_id)
-        return Brand.model_validate(result.data[0])
+        created_brand = Brand.model_validate(result.data[0])
+
+        # Sync to Neo4j graph database (fully async, non-blocking)
+        asyncio.create_task(graph_storage.sync_brand(created_brand))
+
+        return created_brand
 
     async def get_brand(self, brand_id: str) -> Optional[Brand]:
         """
@@ -127,7 +134,12 @@ class BrandStorage:
             raise ValueError(f"Brand {brand_id} not found")
 
         logger.info("brand_updated", brand_id=brand_id)
-        return Brand.model_validate(result.data[0])
+        updated_brand = Brand.model_validate(result.data[0])
+
+        # Sync to Neo4j graph database (fully async, non-blocking)
+        asyncio.create_task(graph_storage.sync_brand(updated_brand))
+
+        return updated_brand
 
     async def delete_brand(self, brand_id: str) -> bool:
         """

@@ -521,6 +521,9 @@ jobStatusDiv.innerHTML = `
 `;
 pollJob(data.job_id, prompt);  // Pass the prompt to pollJob
 } else {
+// Add job_id to sync response
+data.job_id = data.job_id || 'unknown';
+data.prompt = prompt;
 displayAsset(data);
 document.getElementById('promptInput').value = '';
 }
@@ -562,7 +565,8 @@ const asset = {
 image_url: job.current_image_url,
 compliance_score: job.compliance_score,
 status: job.status,
-prompt: originalPrompt
+prompt: originalPrompt,
+job_id: jobId  // Pass job_id for tweaking
 };
 console.log('Displaying asset:', asset);
 displayAsset(asset);
@@ -613,50 +617,130 @@ document.getElementById('assetResult').innerHTML = `
 return;
 }
 
+// Store current job_id for tweaking
+window.currentJobId = asset.job_id;
+window.currentPrompt = asset.prompt;
+
 assets.unshift(asset);
 document.getElementById('assetCount').textContent = assets.length;
 
-const compliance = asset.compliance_score || asset.compliance_details?.overall_score || 0;
-const violations = asset.compliance_details?.violations || [];
-const categories = asset.compliance_details?.categories || {};
-const badgeColor = compliance >= 80 ? 'bg-green-500' : compliance >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+// Extract compliance data from various possible locations
+const complianceScore = asset.compliance_score?.overall_score || asset.compliance_score || 0;
+const complianceData = asset.compliance_score || {};
+const categories = complianceData.categories || [];
+const summary = complianceData.summary || '';
+const approved = complianceData.approved !== undefined ? complianceData.approved : (complianceScore >= 80);
 
-document.getElementById('assetResult').innerHTML = `
-<div>
-<div class="flex justify-between items-start mb-3">
-<span class="font-semibold">Result</span>
-<span class="${badgeColor} text-white text-sm font-bold px-2 py-1 rounded">${Math.round(compliance)}%</span>
-</div>
-${asset.image_url ? `
-<a href="${asset.image_url}" target="_blank">
-<img src="${asset.image_url}" alt="Generated asset" class="w-full rounded-lg mb-3 border hover:opacity-90">
-</a>
-` : '<p class="text-red-500">No image URL</p>'}
-${Object.keys(categories).length > 0 ? `
-<div class="mb-3">
-<p class="text-sm font-medium mb-2">Category Scores</p>
-<div class="grid grid-cols-2 gap-2">
-${Object.entries(categories).map(([cat, score]) => {
-const catColor = score >= 80 ? 'bg-green-500' : score >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+const badgeColor = complianceScore >= 95 ? 'bg-green-500' : complianceScore >= 80 ? 'bg-blue-500' : complianceScore >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+const statusText = approved ? '✓ Auto-Approved' : '⚠ Needs Review';
+const statusColor = approved ? 'text-green-700' : 'text-yellow-700';
+
+// Build category scores HTML
+let categoriesHTML = '';
+if (categories.length > 0) {
+categoriesHTML = `
+<div class="mb-4">
+<p class="text-sm font-semibold text-gray-700 mb-2">Category Breakdown</p>
+<div class="space-y-2">
+${categories.map(cat => {
+const catScore = cat.score || 0;
+const catColor = catScore >= 80 ? 'bg-green-500' : catScore >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+const catPassed = cat.passed ? '✓' : '✗';
+const violations = cat.violations || [];
 return `
-<div class="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
-<span class="text-gray-600 capitalize">${cat.replace('_', ' ')}</span>
-<span class="${catColor} text-white text-xs font-bold px-2 py-1 rounded">${Math.round(score)}%</span>
+<div class="bg-gray-50 rounded-lg p-3 border ${cat.passed ? 'border-gray-200' : 'border-yellow-300'}">
+<div class="flex justify-between items-center mb-1">
+<span class="text-sm font-medium capitalize">${cat.category.replace('_', ' ')}</span>
+<div class="flex items-center gap-2">
+<span class="text-xs ${cat.passed ? 'text-green-600' : 'text-yellow-600'}">${catPassed}</span>
+<span class="${catColor} text-white text-xs font-bold px-2 py-1 rounded">${Math.round(catScore)}%</span>
+</div>
+</div>
+${violations.length > 0 ? `
+<div class="mt-2 space-y-1">
+${violations.map(v => `
+<div class="text-xs bg-white rounded p-2 border border-gray-200">
+<div class="flex items-start gap-1">
+<span class="text-${v.severity === 'critical' ? 'red' : v.severity === 'medium' ? 'yellow' : 'blue'}-500 font-bold">▸</span>
+<div class="flex-1">
+<p class="text-gray-700">${v.description}</p>
+${v.fix_suggestion ? `<p class="text-gray-500 italic mt-1">💡 ${v.fix_suggestion}</p>` : ''}
+</div>
+</div>
+</div>
+`).join('')}
+</div>
+` : ''}
 </div>
 `;
 }).join('')}
 </div>
 </div>
-` : ''}
-${violations.length > 0 ? `
-<div class="p-3 bg-yellow-50 rounded border border-yellow-200">
-<p class="text-sm font-medium text-yellow-800 mb-1">Violations (${violations.length})</p>
-<ul class="text-sm text-yellow-700 space-y-1">
-${violations.slice(0, 5).map(v => `<li>• <span class="font-medium">${v.category}:</span> ${v.description}</li>`).join('')}
-${violations.length > 5 ? `<li class="text-yellow-600">...and ${violations.length - 5} more</li>` : ''}
-</ul>
+`;
+}
+
+document.getElementById('assetResult').innerHTML = `
+<div>
+<!-- Header -->
+<div class="flex justify-between items-start mb-3">
+<div>
+<span class="font-semibold text-lg">Generated Asset</span>
+<p class="text-xs ${statusColor} font-medium mt-1">${statusText}</p>
+</div>
+<span class="${badgeColor} text-white text-sm font-bold px-3 py-1.5 rounded-full shadow">${Math.round(complianceScore)}%</span>
+</div>
+
+<!-- Image -->
+${asset.image_url ? `
+<a href="${asset.image_url}" target="_blank" class="block mb-4">
+<img src="${asset.image_url}" alt="Generated asset" class="w-full rounded-lg border-2 border-gray-200 hover:border-blue-400 transition-colors shadow-sm">
+<p class="text-xs text-gray-500 text-center mt-1">Click to view full size</p>
+</a>
+` : '<p class="text-red-500">No image URL</p>'}
+
+<!-- Summary -->
+${summary ? `
+<div class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+<p class="text-xs font-semibold text-blue-900 mb-1">Compliance Summary</p>
+<p class="text-sm text-blue-800">${summary}</p>
 </div>
 ` : ''}
+
+<!-- Categories -->
+${categoriesHTML}
+
+<!-- Action Buttons -->
+<div class="grid grid-cols-2 gap-2">
+<a href="${asset.image_url}" download class="bg-blue-500 text-white text-center py-2 rounded-lg hover:bg-blue-600 font-medium transition-colors flex items-center justify-center gap-2">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+</svg>
+Download
+</a>
+<button onclick="showTweakUI('${asset.job_id || ''}')" class="bg-purple-500 text-white py-2 rounded-lg hover:bg-purple-600 font-medium transition-colors flex items-center justify-center gap-2">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+</svg>
+Tweak
+</button>
+</div>
+
+<!-- Tweak UI (hidden by default) -->
+<div id="tweakUI" class="hidden mt-4 p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+<p class="text-sm font-semibold text-purple-900 mb-2">✨ Refine This Image</p>
+<p class="text-xs text-purple-700 mb-3">Tell the AI what to adjust while keeping the rest of the image</p>
+<textarea id="tweakInstructionInput" placeholder="Example: 'Make the logo larger and more prominent' or 'Adjust the gold color to be more vibrant'"
+class="w-full border-2 border-purple-200 rounded-md px-3 py-2 text-sm h-24 resize-none mb-2 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-200"></textarea>
+<div class="flex gap-2">
+<button id="tweakSubmitBtn" onclick="submitTweak()" class="flex-1 bg-purple-500 text-white py-2 rounded-md hover:bg-purple-600 font-medium transition-colors disabled:bg-purple-300 disabled:cursor-not-allowed">
+Apply Tweak
+</button>
+<button onclick="hideTweakUI()" class="px-4 bg-gray-300 text-gray-700 py-2 rounded-md hover:bg-gray-400 font-medium transition-colors">
+Cancel
+</button>
+</div>
+<div id="tweakStatus" class="mt-2"></div>
+</div>
 </div>
 `;
 
@@ -703,12 +787,33 @@ function showReviewUI(job, jobId, originalPrompt) {
 const jobStatusDiv = document.getElementById('jobStatus');
 const assetResultDiv = document.getElementById('assetResult');
 
-const compliance = job.compliance_score || 0;
+// Extract compliance data from job state
+const complianceScores = job.state?.compliance_scores || [];
+const latestCompliance = complianceScores[complianceScores.length - 1] || {};
+const compliance = latestCompliance.overall_score || job.compliance_score || 0;
+const categories = latestCompliance.categories || [];
+const summary = latestCompliance.summary || '';
+
 const badgeColor = compliance >= 80 ? 'bg-green-500' : compliance >= 60 ? 'bg-yellow-500' : 'bg-red-500';
+
+// Extract all violations from categories
+let allViolations = [];
+categories.forEach(cat => {
+if (cat.violations && cat.violations.length > 0) {
+cat.violations.forEach(v => {
+allViolations.push({
+category: cat.category,
+description: v.description,
+severity: v.severity,
+fix_suggestion: v.fix_suggestion
+});
+});
+}
+});
 
 // Build violations HTML if available
 let violationsHTML = '';
-if (job.violations && job.violations.length > 0) {
+if (allViolations.length > 0) {
 violationsHTML = `
 <div class="p-4 bg-orange-50 rounded border-2 border-orange-200 mb-4">
 <div class="flex items-start gap-2 mb-3">
@@ -716,12 +821,12 @@ violationsHTML = `
 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
 </svg>
 <div class="flex-1">
-<p class="text-sm font-semibold text-orange-900 mb-1">Brand Compliance Issues (${job.violations.length})</p>
-<p class="text-xs text-orange-700">These issues were detected but may not be visually significant:</p>
+<p class="text-sm font-semibold text-orange-900 mb-1">Brand Compliance Issues (${allViolations.length})</p>
+<p class="text-xs text-orange-700">Review these issues and decide how to proceed:</p>
 </div>
 </div>
 <ul class="text-xs text-orange-800 space-y-2.5 ml-1">
-${job.violations.map(v => `
+${allViolations.map(v => `
 <li class="flex items-start gap-2 bg-white rounded p-2 border border-orange-100">
 <span class="text-orange-500 font-bold mt-0.5 flex-shrink-0">▸</span>
 <div class="flex-1">
@@ -753,6 +858,14 @@ assetResultDiv.innerHTML = `
 </div>
 <p class="text-sm text-blue-50">This image scored <strong>${Math.round(compliance)}%</strong> (between 70-95%). Please review and choose how to proceed.</p>
 </div>
+
+<!-- Compliance Summary -->
+${summary ? `
+<div class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+<p class="text-xs font-semibold text-blue-900 mb-1">Compliance Summary</p>
+<p class="text-sm text-blue-800">${summary}</p>
+</div>
+` : ''}
 
 <!-- Generated Image Preview -->
 <div class="mb-4">
@@ -885,6 +998,87 @@ alert('Please enter tweak instructions');
 return;
 }
 submitReviewDecision(jobId, 'tweak', tweakInstruction, originalPrompt);
+}
+
+// Show tweak UI
+function showTweakUI(jobId) {
+if (!jobId && !window.currentJobId) {
+alert('No job ID available for tweaking');
+return;
+}
+const tweakUI = document.getElementById('tweakUI');
+tweakUI.classList.remove('hidden');
+document.getElementById('tweakInstructionInput').focus();
+}
+
+// Hide tweak UI
+function hideTweakUI() {
+const tweakUI = document.getElementById('tweakUI');
+tweakUI.classList.add('hidden');
+document.getElementById('tweakInstructionInput').value = '';
+document.getElementById('tweakStatus').innerHTML = '';
+}
+
+// Submit tweak
+async function submitTweak() {
+const jobId = window.currentJobId;
+const tweakInstruction = document.getElementById('tweakInstructionInput').value.trim();
+const statusDiv = document.getElementById('tweakStatus');
+const submitBtn = document.getElementById('tweakSubmitBtn');
+
+if (!jobId) {
+statusDiv.innerHTML = '<p class="text-red-600 text-sm">No job ID available</p>';
+return;
+}
+
+if (!tweakInstruction) {
+statusDiv.innerHTML = '<p class="text-red-600 text-sm">Please enter tweak instructions</p>';
+return;
+}
+
+// Disable button to prevent duplicate requests
+if (submitBtn) {
+submitBtn.disabled = true;
+submitBtn.textContent = 'Applying...';
+}
+
+try {
+statusDiv.innerHTML = '<p class="text-blue-600 text-sm">Applying tweak...</p>';
+
+const response = await fetch(`${apiBase}/jobs/${jobId}/tweak`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+job_id: jobId,
+tweak_instruction: tweakInstruction
+})
+});
+
+const data = await response.json();
+if (!response.ok) throw new Error(data.error?.message || data.detail || 'Tweak failed');
+
+statusDiv.innerHTML = '<p class="text-green-600 text-sm">✓ Tweak submitted! Generating refined image...</p>';
+
+// Hide tweak UI and start polling
+setTimeout(() => {
+hideTweakUI();
+document.getElementById('jobStatus').innerHTML = `
+<div class="p-3 bg-purple-50 rounded border border-purple-200">
+<p class="text-sm text-purple-700 font-medium">🎨 Refining image with your tweak...</p>
+<p class="text-xs text-purple-600 mt-1">This may take 1-2 minutes</p>
+</div>
+`;
+pollJob(jobId, window.currentPrompt);
+}, 1000);
+
+} catch (e) {
+statusDiv.innerHTML = `<p class="text-red-600 text-sm">${e.message}</p>`;
+// Re-enable button on error
+if (submitBtn) {
+submitBtn.disabled = false;
+submitBtn.textContent = 'Apply Tweak';
+}
+}
 }
 
 // Initialize

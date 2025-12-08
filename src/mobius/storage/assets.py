@@ -6,8 +6,10 @@ Provides CRUD operations for asset entities in Supabase.
 
 from mobius.models.asset import Asset
 from mobius.storage.database import get_supabase_client
+from mobius.storage.graph import graph_storage
 from typing import List, Optional
 from datetime import datetime, timezone
+import asyncio
 import structlog
 
 logger = structlog.get_logger()
@@ -38,7 +40,12 @@ class AssetStorage:
         result = self.client.table("assets").insert(data).execute()
 
         logger.info("asset_created", asset_id=asset.asset_id)
-        return Asset.model_validate(result.data[0])
+        created_asset = Asset.model_validate(result.data[0])
+
+        # Sync to Neo4j graph database (fully async, non-blocking)
+        asyncio.create_task(graph_storage.sync_asset(created_asset))
+
+        return created_asset
 
     async def get_asset(self, asset_id: str) -> Optional[Asset]:
         """

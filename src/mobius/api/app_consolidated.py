@@ -38,6 +38,9 @@ image = (
         "tenacity>=8.2.0",
         "tiktoken>=0.5.0",
         "hypothesis>=6.0.0",
+        "neo4j>=5.14.0",  # Neo4j Python driver for graph database
+        "certifi>=2023.0.0",  # CA bundle for SSL certificate verification
+        "pip-system-certs>=5.0",  # Integrate system CA certs for Neo4j SSL
     )
     .add_local_dir(str(project_root / "src"), "/root/mobius-src", copy=True)
     .add_local_file(str(project_root / "mobius-dashboard.html"), "/root/mobius-dashboard.html")
@@ -457,6 +460,82 @@ def fastapi_app():
                 }
             )
     
+    @web_app.post("/v1/jobs/{job_id}/review")
+    async def review_job(job_id: str, request: Request):
+        """Submit review decision for jobs in needs_review status."""
+        from mobius.api.routes import review_job_handler
+        from mobius.api.errors import MobiusError
+        import structlog
+        
+        logger = structlog.get_logger()
+        
+        try:
+            body = await request.json()
+            decision = body.get("decision")
+            tweak_instruction = body.get("tweak_instruction")
+            
+            result = await review_job_handler(
+                job_id=job_id,
+                decision=decision,
+                tweak_instruction=tweak_instruction
+            )
+            return result
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred",
+                        "details": {"error": str(e)},
+                    }
+                }
+            )
+    
+    @web_app.post("/v1/jobs/{job_id}/tweak")
+    async def tweak_job(job_id: str, request: Request):
+        """Apply multi-turn tweak to a completed or needs_review job."""
+        from mobius.api.routes import tweak_completed_job_handler
+        from mobius.api.errors import MobiusError
+        import structlog
+        
+        logger = structlog.get_logger()
+        
+        try:
+            body = await request.json()
+            tweak_instruction = body.get("tweak_instruction")
+            
+            result = await tweak_completed_job_handler(
+                job_id=job_id,
+                tweak_instruction=tweak_instruction
+            )
+            return result
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred",
+                        "details": {"error": str(e)},
+                    }
+                }
+            )
+    
     # Template Management Routes
     
     @web_app.post("/v1/templates")
@@ -720,7 +799,167 @@ def fastapi_app():
                     }
                 }
             )
-    
+
+    # Graph Database Routes
+
+    @web_app.get("/v1/health/graph")
+    async def graph_health():
+        """Graph database health check endpoint."""
+        from mobius.api.routes import graph_health_check_handler
+        from mobius.api.errors import MobiusError
+        import structlog
+
+        logger = structlog.get_logger()
+
+        try:
+            result = await graph_health_check_handler()
+            return result
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred",
+                        "details": {"error": str(e)},
+                    }
+                }
+            )
+
+    @web_app.get("/v1/brands/{brand_id}/graph")
+    async def brand_graph(brand_id: str):
+        """Get graph relationships for a brand."""
+        from mobius.api.routes import get_brand_graph_handler
+        from mobius.api.errors import MobiusError
+        import structlog
+
+        logger = structlog.get_logger()
+
+        try:
+            result = await get_brand_graph_handler(brand_id=brand_id)
+            return result
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred",
+                        "details": {"error": str(e)},
+                    }
+                }
+            )
+
+    @web_app.get("/v1/brands/{brand_id}/similar")
+    async def similar_brands(brand_id: str, min_shared_colors: int = 3):
+        """Find brands with similar color palettes."""
+        from mobius.api.routes import find_similar_brands_handler
+        from mobius.api.errors import MobiusError
+        import structlog
+
+        logger = structlog.get_logger()
+
+        try:
+            result = await find_similar_brands_handler(
+                brand_id=brand_id,
+                min_shared_colors=min_shared_colors
+            )
+            return result
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred",
+                        "details": {"error": str(e)},
+                    }
+                }
+            )
+
+    @web_app.get("/v1/colors/{hex}/brands")
+    async def color_relationships(hex: str):
+        """Find all brands using a specific color."""
+        from mobius.api.routes import find_color_relationships_handler
+        from mobius.api.errors import MobiusError
+        import structlog
+
+        logger = structlog.get_logger()
+
+        try:
+            result = await find_color_relationships_handler(hex=hex)
+            return result
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred",
+                        "details": {"error": str(e)},
+                    }
+                }
+            )
+
+    @web_app.get("/v1/colors/{hex}/pairings")
+    async def color_pairings(hex: str, min_samples: int = 5):
+        """Find colors that pair well with a given color (MOAT feature)."""
+        from mobius.api.routes import find_color_pairings_handler
+        from mobius.api.errors import MobiusError
+        import structlog
+
+        logger = structlog.get_logger()
+
+        try:
+            result = await find_color_pairings_handler(hex=hex, min_samples=min_samples)
+            return result
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred",
+                        "details": {"error": str(e)},
+                    }
+                }
+            )
+
     # Dashboard UI
 
     @web_app.get("/")

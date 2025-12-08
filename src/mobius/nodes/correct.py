@@ -39,26 +39,19 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
         attempt_count=state.get("attempt_count", 0)
     )
     
-    # Check if we have audit history
-    audit_history = state.get("audit_history", [])
-    if not audit_history:
-        logger.warning(
-            "no_audit_history",
-            job_id=state.get("job_id")
-        )
-        return {
-            "status": "correcting"
-        }
-    
-    # Get the most recent audit result
-    last_audit = audit_history[-1]
-    
-    # Check if user provided a custom tweak instruction
+    # Check if user provided a custom tweak instruction FIRST
+    # This takes priority over audit-based corrections
     user_instruction = state.get("user_tweak_instruction")
 
     if user_instruction:
         # Use user's custom instruction for targeted editing
-        correction_prompt = f"Please modify the current image: {user_instruction}. Preserve all other elements that are working well."
+        correction_prompt = (
+            f"Looking at the image you just generated in our previous conversation, "
+            f"please make this specific modification: {user_instruction}. "
+            f"\n\nIMPORTANT: Edit the existing image, do not create a new one from scratch. "
+            f"Keep all elements that are working well (composition, layout, colors, positioning) "
+            f"and only change what I've requested."
+        )
 
         logger.info(
             "applying_user_tweak",
@@ -72,6 +65,20 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
             "user_tweak_instruction": None,  # Clear after use
             "status": "correcting"
         }
+
+    # Check if we have audit history for AI-based corrections
+    audit_history = state.get("audit_history", [])
+    if not audit_history:
+        logger.warning(
+            "no_audit_history",
+            job_id=state.get("job_id")
+        )
+        return {
+            "status": "correcting"
+        }
+    
+    # Get the most recent audit result
+    last_audit = audit_history[-1]
 
     # Extract fix suggestion from audit
     # The audit result structure includes a summary field that may contain suggestions
@@ -111,8 +118,29 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
 
     # Apply correction if we have a fix suggestion
     if fix_suggestion and fix_suggestion.lower() not in ["null", "none", ""]:
+        # Build list of critical/high violations for explicit instructions
+        fix_instructions = []
+        for suggestion, severity in zip(violation_suggestions, violation_severities):
+            if severity in ["critical", "high"]:
+                fix_instructions.append(f"- {suggestion}")
+
         # Create targeted edit prompt for multi-turn conversation
-        correction_prompt = f"Please modify the current image: {fix_suggestion}. Preserve all other elements that are working well."
+        if fix_instructions:
+            correction_prompt = (
+                f"Looking at the image you just generated in our previous conversation, "
+                f"please make these specific changes:\n"
+                f"{chr(10).join(fix_instructions)}\n\n"
+                f"IMPORTANT: Edit the existing image, do not create a new one from scratch. "
+                f"Preserve all elements that are brand-compliant and only fix the violations listed above."
+            )
+        else:
+            # Fallback for general suggestions
+            correction_prompt = (
+                f"Looking at the image you just generated in our previous conversation, "
+                f"please modify it: {fix_suggestion}. "
+                f"\n\nIMPORTANT: Edit the existing image, do not create a new one from scratch. "
+                f"Preserve all elements that are working well."
+            )
 
         logger.info(
             "applying_ai_correction",

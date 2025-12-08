@@ -152,7 +152,7 @@ class FileStorage:
         Raises:
             Exception: If download or upload fails
         """
-        logger.info("uploading_image", asset_id=asset_id, source_url=image_url)
+        logger.info("uploading_image", asset_id=asset_id, source_url=image_url[:100] if image_url else None)
 
         try:
             # Download from generation service
@@ -187,6 +187,91 @@ class FileStorage:
 
         except Exception as e:
             logger.error("image_upload_failed", asset_id=asset_id, error=str(e))
+            raise
+
+    async def upload_generated_image(
+        self, image_data_uri: str, job_id: str, attempt: int = 1
+    ) -> str:
+        """
+        Upload a generated image (from base64 data URI) to Supabase Storage.
+        
+        This converts base64 data URIs to actual files stored in Supabase,
+        reducing database size and improving performance.
+
+        Args:
+            image_data_uri: Base64 data URI (e.g., "data:image/jpeg;base64,...")
+            job_id: UUID of the job
+            attempt: Generation attempt number (for unique filenames)
+
+        Returns:
+            Public CDN URL for the uploaded file
+
+        Raises:
+            Exception: If upload fails or data URI is invalid
+        """
+        import base64
+        
+        logger.info(
+            "uploading_generated_image",
+            job_id=job_id,
+            attempt=attempt,
+            data_uri_length=len(image_data_uri) if image_data_uri else 0
+        )
+
+        try:
+            # Parse data URI
+            if not image_data_uri or not image_data_uri.startswith("data:image"):
+                raise ValueError("Invalid data URI format")
+            
+            # Extract mime type and base64 data
+            # Format: data:image/jpeg;base64,<base64_data>
+            header, base64_data = image_data_uri.split(",", 1)
+            mime_type = header.split(":")[1].split(";")[0]  # e.g., "image/jpeg"
+            
+            # Decode base64 to bytes
+            image_bytes = base64.b64decode(base64_data)
+            
+            logger.debug(
+                "image_decoded",
+                job_id=job_id,
+                mime_type=mime_type,
+                size_bytes=len(image_bytes)
+            )
+            
+            # Determine file extension from mime type
+            ext = "jpg" if mime_type == "image/jpeg" else "png"
+            filename = f"generated_v{attempt}.{ext}"
+            
+            # Upload to Supabase Storage
+            path = f"generated/{job_id}/{filename}"
+            
+            result = self.client.storage.from_(ASSETS_BUCKET).upload(
+                path,
+                image_bytes,
+                {
+                    "content-type": mime_type,
+                    "upsert": "true"  # Allow overwriting if file exists
+                }
+            )
+            
+            # Get public CDN URL
+            url = self.client.storage.from_(ASSETS_BUCKET).get_public_url(path)
+            
+            logger.info(
+                "generated_image_uploaded",
+                job_id=job_id,
+                url=url,
+                size_bytes=len(image_bytes)
+            )
+            
+            return url
+
+        except Exception as e:
+            logger.error(
+                "generated_image_upload_failed",
+                job_id=job_id,
+                error=str(e)
+            )
             raise
 
     async def delete_file(self, bucket: str, path: str) -> bool:

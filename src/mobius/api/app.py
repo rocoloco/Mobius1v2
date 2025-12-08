@@ -39,6 +39,7 @@ image = (
         "tenacity>=8.2.0",
         "hypothesis>=6.0.0",
         "tiktoken>=0.5.0",
+        "neo4j>=5.14.0",  # Neo4j Python driver for graph database
     )
 )
 
@@ -395,6 +396,47 @@ async def v1_review_job(request: dict):
         result = await review_job_handler(
             job_id=job_id,
             decision=decision,
+            tweak_instruction=tweak_instruction
+        )
+
+        return result
+
+    except MobiusError as e:
+        logger.error("endpoint_error", error=str(e))
+        return {"error": e.error_response.model_dump()}, e.status_code
+    except Exception as e:
+        logger.error("unexpected_error", error=str(e))
+        return {
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred",
+                "details": {"error": str(e)},
+            }
+        }, 500
+
+
+# Template Management Endpoints
+
+@app.function(image=image, secrets=secrets)
+@modal.web_endpoint(method="POST", label="v1-tweak-job")
+async def v1_tweak_job(request: dict):
+    """
+    POST /v1/jobs/{job_id}/tweak
+
+    Apply multi-turn tweak to a completed job.
+    """
+    from mobius.api.routes import tweak_completed_job_handler
+    from mobius.api.errors import MobiusError
+    import structlog
+
+    logger = structlog.get_logger()
+
+    try:
+        job_id = request.get("job_id")
+        tweak_instruction = request.get("tweak_instruction")
+
+        result = await tweak_completed_job_handler(
+            job_id=job_id,
             tweak_instruction=tweak_instruction
         )
 
