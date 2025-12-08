@@ -172,13 +172,54 @@ compressed_twin: CompressedDigitalTwin  # Optimized (<60k tokens)
 pdf_url, logo_thumbnail_url
 ```
 
-### BrandGuidelines
+### BrandGuidelines (The Brand Graph)
 ```python
-colors: List[Color]                  # With semantic roles
+# Identity Core (MOAT: Strategic positioning)
+identity_core: IdentityCore          # Archetype, voice vectors, negative constraints
+
+# Visual DNA
+colors: List[Color]                  # With semantic roles + usage weights
 typography: List[Typography]
 logos: List[LogoRule]
+
+# Verbal Soul
 voice: VoiceTone
-rules: List[BrandRule]
+
+# Governance Rules
+rules: List[BrandRule]               # Category, severity, negative constraints
+
+# Context-Specific Rules (MOAT: Channel governance)
+contextual_rules: List[ContextualRule]  # LinkedIn vs Instagram, print vs digital
+
+# Asset Inventory (MOAT: Single source of truth)
+asset_graph: AssetGraph              # Logo variants, templates, patterns
+
+# Metadata
+version: str                         # Semantic versioning (e.g., "2.1.0")
+source_filename, ingested_at
+```
+
+### IdentityCore (New - MOAT)
+```python
+archetype: str                       # "The Sage", "The Hero", "The Rebel"
+voice_vectors: Dict[str, float]      # formal: 0.8, witty: 0.2, urgent: 0.0
+negative_constraints: List[str]      # "No drop shadows", "No neon colors"
+```
+
+### ContextualRule (New - MOAT)
+```python
+context: str                         # "social_media_linkedin", "print_packaging"
+rule: str                            # "Images must contain human subjects"
+priority: int                        # 1-10 (higher = more important)
+applies_to: List[str]                # ["image", "video", "document"]
+```
+
+### AssetGraph (New - MOAT)
+```python
+logos: Dict[str, str]                # {"primary": "s3://...", "reversed": "s3://..."}
+templates: Dict[str, str]            # {"social_post": "s3://...", "email_header": "s3://..."}
+patterns: Dict[str, str]             # {"background_texture": "s3://..."}
+photography_style: str               # URL to style guide
 ```
 
 ### JobState (LangGraph)
@@ -202,48 +243,81 @@ created_at, updated_at, expires_at
 
 ## Key Features
 
-### 1. Graph-Powered Brand Intelligence (Competitive Moat)
+### 1. Brand Graph as Operating System (The Data Moat)
 
-**The Problem**: Traditional brand governance systems treat each brand in isolation, missing critical insights from cross-brand patterns, color relationships, and usage trends.
+**The Problem**: Competitors can replicate image generation, but they can't replicate your structured brand data if clients integrate it into their internal tools.
 
-**Our Solution**: Dual-database architecture with Neo4j graph intelligence layer.
+**Our Solution**: Expose the brand as a machine-readable "operating system" via API, creating lock-in through developer integrations.
 
 **Why This is a Moat:**
 
-1. **Network Effects at the Data Layer**
-   - Every brand added strengthens the entire platform
+1. **Developer Integration Lock-In**
+   - Client dev teams use `GET /v1/brands/{id}/graph` for official hex codes, fonts, rules
+   - Internal design systems depend on your API (React components, Figma plugins)
+   - Marketing automation pulls brand data (HubSpot, Marketo integrations)
+   - Multi-brand dashboards built on your API
+   - **Migration cost: $50k-$150k in engineering time**
+
+2. **Structured Data Ownership**
+   - PDF is just a render - you own the machine-readable truth
+   - Identity core: Archetype, voice vectors (formal: 0.8, witty: 0.2)
+   - Contextual rules: LinkedIn vs Instagram, print vs digital
+   - Asset graph: Logo variants, templates, patterns
+   - **Competitors would need to replicate entire schema + all integrations**
+
+3. **Network Effects at the Data Layer**
+   - Every brand added strengthens the platform
    - Color usage patterns emerge across thousands of brands
    - "Brands like yours use these color pairings" insights
-   - Competitive differentiation compounds over time
+   - Cross-brand trend analysis (industry benchmarks)
+   - **Competitive differentiation compounds over time**
 
-2. **Relationship Intelligence No One Else Has**
+4. **Relationship Intelligence (Neo4j Graph)**
    - Which brands share similar color palettes?
    - What colors are commonly paired together?
-   - How do brand colors evolve over time?
    - Which color combinations drive highest compliance scores?
+   - Template recommendations from similar brands
+   - **O(1) graph queries vs O(n²) in SQL**
 
-3. **Zero-Latency Implementation**
-   - Non-blocking async dual-write (0ms performance impact)
-   - PostgreSQL remains source of truth (zero risk)
-   - Graph queries are read-only (data integrity guaranteed)
-   - Graceful degradation if Neo4j unavailable
+**Real-World Lock-In Scenarios:**
 
-4. **Scalability Built-In**
-   - Graph databases excel at relationship queries
-   - O(1) lookup for "find similar brands" (vs O(n²) in SQL)
-   - 200k nodes, 400k relationships on free tier
-   - Sub-100ms query times even at scale
+1. **Internal Design System**
+   ```javascript
+   // Client's React components depend on your API
+   const { visual_tokens } = useBrandGraph('b_123');
+   const primaryColor = visual_tokens.colors.find(c => c.semantic_role === 'primary').hex;
+   ```
 
-**Real-World Use Cases:**
-- "Show me brands with similar color schemes to inspire this design"
-- "What colors pair well with #FF6B35 based on successful brands?"
-- "Find templates from brands in the same industry with high compliance"
-- "Identify color trends across all enterprise brands this quarter"
+2. **Marketing Automation**
+   ```python
+   # Client's HubSpot integration pulls brand colors
+   brand = requests.get('https://api.mobius.com/v1/brands/b_123/graph').json()
+   primary_color = next(c['hex'] for c in brand['visual_tokens']['colors'] 
+                        if c['semantic_role'] == 'primary')
+   ```
+
+3. **Multi-Brand Dashboard**
+   ```typescript
+   // Enterprise client's brand management portal
+   const brands = await Promise.all(
+     brandIds.map(id => fetch(`/v1/brands/${id}/graph`).then(r => r.json()))
+   );
+   ```
 
 **Technical Implementation:**
 ```python
 # Dual-write pattern (fully async, non-blocking)
 asyncio.create_task(graph_storage.sync_brand(brand))
+
+# Brand Graph API (returns full structured data)
+GET /v1/brands/{id}/graph
+{
+  "identity_core": {"archetype": "The Sage", "voice_vectors": {...}},
+  "visual_tokens": {"colors": [...], "typography": [...], "logos": [...]},
+  "contextual_rules": [{"context": "social_media_linkedin", "rule": "..."}],
+  "asset_graph": {"logos": {...}, "templates": {...}},
+  "relationships": {"similar_brands": [...], "color_pairings": [...]}
+}
 
 # Graph queries (optimized for relationships)
 similar_brands = await graph_storage.find_similar_brands(brand_id, limit=10)
@@ -251,9 +325,12 @@ color_pairings = await graph_storage.find_color_pairings("#FF6B35")
 ```
 
 **Data Model:**
-- Nodes: Brand, Color, Asset, Template, Feedback
-- Relationships: OWNS_COLOR, GENERATED_ASSET, HAS_TEMPLATE, RECEIVED_FEEDBACK
-- Properties: usage (primary/secondary/accent), timestamps, scores
+- **PostgreSQL**: Source of truth (brands, assets, jobs)
+- **Neo4j**: Relationship intelligence (brand similarity, color pairings)
+- **Dual-Write**: Non-blocking async sync (0ms latency impact)
+- **Nodes**: Brand, Color, Asset, Template, Feedback
+- **Relationships**: OWNS_COLOR, GENERATED_ASSET, HAS_TEMPLATE, RECEIVED_FEEDBACK
+- **Properties**: usage (primary/secondary/accent), timestamps, scores
 
 ### 2. Multi-Turn Conversation
 - Preserves session_id across tweaks
@@ -342,7 +419,26 @@ image = modal.Image.debian_slim() \
 
 ## Recent Enhancements (Dec 2024)
 
-### Neo4j Graph Database Integration (MOAT)
+### Brand Graph as Operating System (THE MOAT)
+- **Why**: Competitors can replicate image generation, but not structured brand data integrated into client tools
+- **What**: Expose brand as machine-readable API that clients integrate into internal systems
+- **Impact**:
+  - **Developer lock-in**: Design systems, marketing automation, dashboards depend on your API
+  - **Migration cost**: $50k-$150k to extract data + rewrite integrations
+  - **Network effects**: More brands = better insights = higher value
+  - **Structured data ownership**: You own the truth, PDF is just a render
+- **New Schema Fields**:
+  - `IdentityCore`: Archetype, voice vectors (formal: 0.8, witty: 0.2), negative constraints
+  - `ContextualRule`: Channel-specific rules (LinkedIn vs Instagram, print vs digital)
+  - `AssetGraph`: Logo variants, templates, patterns (single source of truth)
+- **API Endpoint**: `GET /v1/brands/{id}/graph` returns complete Brand Graph
+- **Competitive Advantage**:
+  - Midjourney/DALL-E: Just generate images, no structured data
+  - Canva: Templates only, no programmatic API
+  - Figma: Design tool, not a brand operating system
+  - **Mobius**: Only platform exposing brand as machine-readable graph with API
+
+### Neo4j Graph Database Integration (Relationship Intelligence)
 - **Why**: Traditional brand systems miss cross-brand insights and relationship patterns
 - **What**: Dual-database architecture with PostgreSQL (source of truth) + Neo4j (relationship intelligence)
 - **Impact**:
@@ -411,21 +507,27 @@ image = modal.Image.debian_slim() \
 | `/health` | GET | Health check |
 | `/docs` | GET | API docs |
 
-### Graph Intelligence Endpoints (New)
+### Brand Graph API (MOAT - Creates Lock-In)
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/health/graph` | GET | Neo4j connection health |
-| `/brands/{id}/graph` | GET | Brand colors + relationships |
-| `/brands/{id}/similar` | GET | Find brands with similar palettes |
-| `/colors/{hex}/brands` | GET | Brands using this color |
-| `/colors/{hex}/pairings` | GET | Common color pairings |
+| Endpoint | Method | Purpose | Lock-In Value |
+|----------|--------|---------|---------------|
+| `/brands/{id}/graph` | GET | **Full Brand Graph** - identity core, visual tokens, contextual rules, asset graph | **HIGH** - Clients integrate into internal tools |
+| `/brands/{id}/similar` | GET | Find brands with similar palettes | Medium - Inspiration features |
+| `/colors/{hex}/brands` | GET | Brands using this color | Low - Analytics |
+| `/colors/{hex}/pairings` | GET | Common color pairings (MOAT feature) | **HIGH** - Unique intelligence |
+| `/health/graph` | GET | Neo4j connection health | Low - Monitoring |
+
+**Key Insight**: `/brands/{id}/graph` is the crown jewel - it returns the complete machine-readable brand operating system that clients will integrate into their design systems, marketing automation, and internal dashboards. This creates lock-in because migrating would require rewriting all those integrations.
 
 
 ## Key Terms
 
-- **Digital Twin**: Machine-readable brand representation with semantic rules
-- **Compressed Twin**: Optimized guidelines (<60k tokens) for Vision Model
+- **Brand Graph**: Machine-readable brand "operating system" exposed via API (THE MOAT)
+- **Digital Twin**: Complete brand representation with semantic rules (for auditing)
+- **Compressed Twin**: Optimized guidelines (<60k tokens) for Vision Model (for generation)
+- **Identity Core**: Brand archetype + voice vectors + negative constraints (MOAT field)
+- **Contextual Rules**: Channel-specific governance (LinkedIn vs Instagram) (MOAT field)
+- **Asset Graph**: Structured inventory of logos, templates, patterns (MOAT field)
 - **Vision Model**: Gemini 3 Pro Image Preview (generation)
 - **Reasoning Model**: Gemini 3 Pro Preview (auditing, parsing)
 - **Semantic Color Hierarchy**: Primary/secondary/accent/neutral roles prevent "confetti problem"
@@ -435,14 +537,21 @@ image = modal.Image.debian_slim() \
 - **Graph Intelligence**: Neo4j-powered relationship queries for brand insights
 - **Dual-Write**: Non-blocking async sync to both PostgreSQL and Neo4j
 - **Relationship Intelligence**: Cross-brand patterns, color pairings, similarity matching
+- **Developer Lock-In**: Client integrations into design systems, marketing automation, dashboards
 
 ---
 
-**Version**: 2.3
-**Last Updated**: December 7, 2024
-**Major Changes**: Neo4j graph intelligence (competitive moat), multi-turn tweaks, user-controlled workflow
+**Version**: 2.4
+**Last Updated**: December 8, 2024
+**Major Changes**: 
+- **Brand Graph as Operating System** (THE MOAT) - Structured brand data exposed via API creates developer lock-in
+- **New Schema Fields**: IdentityCore (archetype, voice vectors), ContextualRule (channel-specific), AssetGraph (asset inventory)
+- **Enhanced API**: `GET /v1/brands/{id}/graph` returns complete Brand Graph for client integrations
+- Neo4j graph intelligence (relationship queries, brand similarity, color pairings)
+- Multi-turn tweaks, user-controlled workflow
 
 For more details, see:
+- **BRAND-GRAPH-API.md** - Brand Graph API documentation and lock-in strategy
+- **MOAT.md** - Competitive moat strategy and differentiation
 - README.md - Setup and deployment
-- DEPLOYMENT-GUIDE.md - Detailed deployment instructions
 - API documentation at `/v1/docs` endpoint
