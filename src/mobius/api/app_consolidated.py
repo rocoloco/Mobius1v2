@@ -20,7 +20,29 @@ project_root = this_file.parent.parent.parent.parent
 
 image = (
     modal.Image.debian_slim()
-    .apt_install("libcairo2")  # Required for SVG rasterization
+    .apt_install(
+        "libcairo2",  # Required for SVG rasterization
+        # Chromium dependencies for Playwright
+        "libglib2.0-0",
+        "libnss3",
+        "libnspr4",
+        "libatk1.0-0",
+        "libatk-bridge2.0-0",
+        "libcups2",
+        "libdrm2",
+        "libxkbcommon0",
+        "libxcomposite1",
+        "libxdamage1",
+        "libxrandr2",
+        "libgbm1",
+        "libpango-1.0-0",
+        "libcairo2",
+        "libasound2",
+        "libxshmfence1",
+        "fonts-liberation",
+        "libappindicator3-1",
+        "xdg-utils",
+    )
     .pip_install(
         "fastapi>=0.104.0",
         "python-multipart>=0.0.6",
@@ -41,8 +63,10 @@ image = (
         "neo4j>=5.14.0",  # Neo4j Python driver for graph database
         "certifi>=2023.0.0",  # CA bundle for SSL certificate verification
         "pip-system-certs>=5.0",  # Integrate system CA certs for Neo4j SSL
+        "playwright==1.48.0",  # For visual scraping
     )
-    .add_local_dir(str(project_root / "src"), "/root/mobius-src", copy=True)
+    .run_commands("playwright install chromium")
+    .add_local_dir(str(project_root / "src" / "mobius"), "/root/mobius", copy=True)
     .add_local_file(str(project_root / "mobius-dashboard.html"), "/root/mobius-dashboard.html")
 )
 
@@ -50,14 +74,197 @@ image = (
 secrets = [modal.Secret.from_name("mobius-secrets")]
 
 
+# Visual scraper function (consolidated into main app)
+@app.function(image=image, secrets=secrets, timeout=60)
+def analyze_brand_visuals(url: str):
+    """Analyze a website's visual brand identity using Playwright + Gemini Vision."""
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+    import google.generativeai as genai
+    import json
+    import os
+    
+    # Extraction schema for Gemini
+    EXTRACTION_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "identity_core": {
+                "type": "object",
+                "properties": {
+                    "archetype": {
+                        "type": "string",
+                        "description": "Jungian brand archetype (e.g., 'The Sage', 'The Hero', 'The Rebel')"
+                    },
+                    "voice_vectors": {
+                        "type": "object",
+                        "description": "Voice dimensions as 0.0-1.0 scores",
+                        "properties": {
+                            "formal": {
+                                "type": "number",
+                                "description": "0.0 = casual, 1.0 = formal/professional"
+                            },
+                            "witty": {
+                                "type": "number",
+                                "description": "0.0 = serious, 1.0 = playful/humorous"
+                            },
+                            "technical": {
+                                "type": "number",
+                                "description": "0.0 = accessible, 1.0 = jargon-heavy/expert"
+                            },
+                            "urgent": {
+                                "type": "number",
+                                "description": "0.0 = relaxed, 1.0 = time-sensitive/action-oriented"
+                            },
+                        },
+                    },
+                },
+            },
+            "colors": {
+                "type": "array",
+                "description": "Brand color palette with semantic roles",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Color name (e.g., 'Ocean Blue')"},
+                        "hex": {"type": "string", "description": "Hex code (e.g., '#0057B8')"},
+                        "usage": {
+                            "type": "string",
+                            "enum": ["primary", "secondary", "accent", "neutral", "semantic"],
+                            "description": "Semantic role: primary (brand identity), secondary (supporting), accent (CTAs), neutral (backgrounds), semantic (status)"
+                        },
+                        "usage_weight": {
+                            "type": "number",
+                            "description": "Estimated visual prominence (0.0-1.0)"
+                        },
+                    },
+                },
+            },
+            "typography": {
+                "type": "array",
+                "description": "Font families detected",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "family": {"type": "string", "description": "Font family name"},
+                        "usage": {"type": "string", "description": "Usage context (e.g., 'Headlines', 'Body text')"},
+                    },
+                },
+            },
+            "visual_style": {
+                "type": "object",
+                "description": "Overall visual aesthetic",
+                "properties": {
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "3-5 adjectives describing visual style"
+                    },
+                    "imagery_style": {
+                        "type": "string",
+                        "description": "Photography/illustration style"
+                    },
+                },
+            },
+            "confidence": {
+                "type": "number",
+                "description": "Confidence score (0.0-1.0)"
+            },
+        },
+        "required": ["identity_core", "colors", "typography", "visual_style", "confidence"],
+    }
+    
+    EXTRACTION_PROMPT = """You are an expert Brand Strategist analyzing a website screenshot.
+
+Your task is to infer the brand's identity by analyzing:
+1. **Visual Hierarchy**: What elements dominate? What's emphasized?
+2. **Color Psychology**: What emotions do the colors evoke?
+3. **Typography**: What does the font choice communicate?
+4. **Imagery Style**: What's the photography/illustration aesthetic?
+5. **Copy Tone**: Analyze headlines and CTAs for voice characteristics
+
+CRITICAL INSTRUCTIONS:
+- Focus on the "above the fold" content (first screen)
+- Identify the PRIMARY brand color (used for logos/headers)
+- Identify ACCENT colors (used for buttons/CTAs)
+- Infer the Jungian archetype based on visual + verbal cues
+- Estimate voice vectors by analyzing headline tone and word choice
+- Assign usage_weight based on visual prominence (0.0-1.0)
+
+ARCHETYPE GUIDE:
+- The Sage: Wisdom, expertise, thought leadership (e.g., universities, consultancies)
+- The Hero: Achievement, courage, making an impact (e.g., Nike, sports brands)
+- The Rebel: Disruption, revolution, breaking rules (e.g., Harley-Davidson, Tesla)
+- The Innocent: Simplicity, purity, nostalgia (e.g., Dove, Coca-Cola)
+- The Explorer: Freedom, discovery, adventure (e.g., Patagonia, Jeep)
+- The Creator: Innovation, imagination, self-expression (e.g., Adobe, Lego)
+- The Ruler: Control, leadership, responsibility (e.g., Mercedes-Benz, Rolex)
+- The Magician: Transformation, vision, making dreams reality (e.g., Disney, Apple)
+- The Lover: Intimacy, passion, sensuality (e.g., Chanel, Godiva)
+- The Caregiver: Service, compassion, nurturing (e.g., Johnson & Johnson, UNICEF)
+- The Jester: Joy, humor, living in the moment (e.g., Ben & Jerry's, Old Spice)
+- The Everyman: Belonging, authenticity, down-to-earth (e.g., IKEA, Target)
+
+Return strict JSON matching the schema. Be decisive - make your best inference even with limited information."""
+    
+    # Normalize URL
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    
+    # Capture screenshot
+    screenshot_bytes = None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
+            context = browser.new_context(viewport={"width": 1280, "height": 1024})
+            page = context.new_page()
+            
+            try:
+                page.goto(url, wait_until="networkidle", timeout=15000)
+                page.wait_for_timeout(2000)
+                screenshot_bytes = page.screenshot(
+                    clip={"x": 0, "y": 0, "width": 1280, "height": 2000},
+                    type="jpeg",
+                    quality=85,
+                )
+            finally:
+                browser.close()
+    except Exception as e:
+        return {"error": f"Screenshot failed: {str(e)}", "url": url, "confidence": 0.0}
+    
+    if not screenshot_bytes:
+        return {"error": "Screenshot capture failed", "url": url, "confidence": 0.0}
+    
+    # Analyze with Gemini
+    try:
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        
+        response = model.generate_content(
+            contents=[
+                EXTRACTION_PROMPT,
+                {"mime_type": "image/jpeg", "data": screenshot_bytes},
+            ],
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                response_schema=EXTRACTION_SCHEMA,
+                temperature=0.3,
+            ),
+        )
+        
+        result = json.loads(response.text)
+        result["url"] = url
+        return result
+    except Exception as e:
+        return {"error": f"Vision analysis failed: {str(e)}", "url": url, "confidence": 0.0}
+
+
 # Mount FastAPI app to Modal
-@app.function(image=image, secrets=secrets)
+@app.function(image=image, secrets=secrets, timeout=180)  # 3min timeout for long-running generation workflows
 @modal.asgi_app()
 def fastapi_app():
     """Main ASGI app with all routes."""
     
     import sys
-    sys.path.insert(0, "/root/mobius-src")
+    sys.path.insert(0, "/root")
     
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
@@ -123,11 +330,18 @@ def fastapi_app():
                                logo_size=len(logo_file_bytes), 
                                logo_filename=logo_filename)
                 
+                # Check for optional visual scan data (MOAT enrichment)
+                visual_scan_data = form.get("visual_scan_data")
+                if visual_scan_data:
+                    logger.info("visual_scan_data_received", 
+                               data_length=len(visual_scan_data))
+                
                 logger.info("multipart_upload_received", 
                            file_size=len(file_bytes), 
                            filename=filename,
                            brand_name=brand_name,
-                           has_logo=logo_file_bytes is not None)
+                           has_logo=logo_file_bytes is not None,
+                           has_visual_scan=visual_scan_data is not None)
                 
             else:
                 # Handle JSON with base64-encoded file (legacy support)
@@ -189,6 +403,7 @@ def fastapi_app():
                 filename=filename,
                 logo_file=logo_file_bytes,
                 logo_filename=logo_filename,
+                visual_scan_data=visual_scan_data if 'visual_scan_data' in locals() else None,
             )
             
             return result.model_dump() if hasattr(result, 'model_dump') else result
@@ -209,6 +424,56 @@ def fastapi_app():
                         "code": "INTERNAL_ERROR",
                         "message": "An unexpected error occurred",
                         "details": {"error": error_msg},
+                    }
+                }
+            )
+    
+    @web_app.post("/v1/brands/scan")
+    async def scan_brand_from_url(request: Request):
+        """Scan a website URL to extract brand identity using vision AI."""
+        from mobius.api.errors import MobiusError, ValidationError
+        import structlog
+        import modal
+        
+        logger = structlog.get_logger()
+        
+        try:
+            data = await request.json()
+            url = data.get("url")
+            
+            if not url:
+                raise ValidationError(
+                    code="MISSING_URL",
+                    message="url is required",
+                    request_id="",
+                )
+            
+            logger.info("visual_scan_started", url=url)
+            
+            # Call the visual scraper function using spawn (async execution within same app)
+            # We use .spawn() to run it in a separate container, then get the result
+            call = analyze_brand_visuals.spawn(url)
+            result = call.get()
+            
+            logger.info("visual_scan_completed", url=url, has_error="error" in result)
+            
+            return result
+            
+        except MobiusError as e:
+            logger.error("endpoint_error", error=str(e))
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"error": e.error_response.model_dump()}
+            )
+        except Exception as e:
+            logger.error("unexpected_error", error=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "An unexpected error occurred during visual scan",
+                        "details": {"error": str(e)},
                     }
                 }
             )
@@ -1035,7 +1300,7 @@ def fastapi_app():
 async def cleanup_expired_jobs():
     """Cleanup expired jobs and associated temporary files."""
     import sys
-    sys.path.insert(0, "/root/mobius-src")  # Add mounted source to Python path
+    sys.path.insert(0, "/root")  # Add mounted source to Python path
     
     from mobius.storage.database import get_supabase_client
     from mobius.storage.files import FileStorage

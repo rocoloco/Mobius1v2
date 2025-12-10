@@ -1469,7 +1469,7 @@ Return ONLY the optimized prompt, no explanations or preamble."""
             "- **Apply contextual leniency** as described above before flagging violations",
             "",
             "Calculate overall_score as weighted average of categories.",
-            "Set approved=true if overall_score >= 80.",
+            "Set approved=true if overall_score >= 95.",
             "Provide a summary of the overall assessment with contextual notes.",
         ])
         

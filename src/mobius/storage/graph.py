@@ -75,12 +75,25 @@ class GraphStorage:
 
     async def sync_brand(self, brand: Brand) -> None:
         """
-        Create or update Brand node and its Color relationships in Neo4j.
+        Create or update Brand node with complete MOAT structure in Neo4j.
 
         Creates:
-        - (:Brand) node
-        - (:Color) nodes for each color in guidelines
-        - (Brand)-[:OWNS_COLOR]->(Color) relationships
+        - (:Brand) node with core metadata
+        - (:Color) nodes with semantic roles
+        - (:Typography) nodes
+        - (:Archetype) node (shared across brands)
+        - (:Rule) nodes for governance
+        - (:ContextualRule) nodes for channel-specific rules
+        
+        Relationships:
+        - (Brand)-[:OWNS_COLOR {usage, usage_weight}]->(Color)
+        - (Brand)-[:USES_TYPOGRAPHY {usage}]->(Typography)
+        - (Brand)-[:HAS_ARCHETYPE]->(Archetype)
+        - (Brand)-[:HAS_VOICE_VECTOR {dimension, score}]->(Brand) [self-loop]
+        - (Brand)-[:FORBIDS {constraint}]->(Brand) [self-loop]
+        - (Brand)-[:HAS_RULE]->(Rule)
+        - (Brand)-[:HAS_CONTEXTUAL_RULE]->(ContextualRule)
+        - (Brand)-[:HAS_LOGO {variant, url}]->(Brand) [self-loop]
 
         Idempotent: Safe to call multiple times for same brand.
         """
@@ -109,17 +122,59 @@ class GraphStorage:
                     updated_at=brand.updated_at
                 )
 
-                # Sync Color nodes and OWNS_COLOR relationships
-                if brand.guidelines and brand.guidelines.colors:
+                if not brand.guidelines:
+                    logger.warning("brand_has_no_guidelines", brand_id=brand.brand_id)
+                    return
+
+                # Sync Colors (Visual DNA)
+                if brand.guidelines.colors:
                     for color in brand.guidelines.colors:
                         await self._sync_color_relationship(
                             session, brand.brand_id, color
                         )
 
+                # Sync Identity Core (THE MOAT - Strategic positioning)
+                if brand.guidelines.identity_core:
+                    await self._sync_identity_core(
+                        session, brand.brand_id, brand.guidelines.identity_core
+                    )
+
+                # Sync Typography (Visual DNA)
+                if brand.guidelines.typography:
+                    for typo in brand.guidelines.typography:
+                        await self._sync_typography(
+                            session, brand.brand_id, typo
+                        )
+
+                # Sync Brand Rules (Governance)
+                if brand.guidelines.rules:
+                    for rule in brand.guidelines.rules:
+                        await self._sync_rule(
+                            session, brand.brand_id, rule
+                        )
+
+                # Sync Contextual Rules (MOAT - Channel-specific governance)
+                if brand.guidelines.contextual_rules:
+                    for ctx_rule in brand.guidelines.contextual_rules:
+                        await self._sync_contextual_rule(
+                            session, brand.brand_id, ctx_rule
+                        )
+
+                # Sync Asset Graph (MOAT - Asset inventory)
+                if brand.guidelines.asset_graph:
+                    await self._sync_asset_graph(
+                        session, brand.brand_id, brand.guidelines.asset_graph
+                    )
+
                 logger.info(
                     "brand_synced_to_graph",
                     brand_id=brand.brand_id,
-                    color_count=len(brand.guidelines.colors) if brand.guidelines else 0
+                    color_count=len(brand.guidelines.colors) if brand.guidelines.colors else 0,
+                    has_identity_core=brand.guidelines.identity_core is not None,
+                    typography_count=len(brand.guidelines.typography) if brand.guidelines.typography else 0,
+                    rule_count=len(brand.guidelines.rules) if brand.guidelines.rules else 0,
+                    contextual_rule_count=len(brand.guidelines.contextual_rules) if brand.guidelines.contextual_rules else 0,
+                    has_asset_graph=brand.guidelines.asset_graph is not None
                 )
 
         except Exception as e:
@@ -158,6 +213,198 @@ class GraphStorage:
             usage_weight=color.usage_weight,
             context=color.context
         )
+
+    async def _sync_identity_core(
+        self, session: AsyncSession, brand_id: str, identity_core: Any
+    ) -> None:
+        """
+        Sync Identity Core (THE MOAT - Strategic positioning).
+        
+        Creates:
+        - (:Archetype) node (shared across brands)
+        - (Brand)-[:HAS_ARCHETYPE]->(Archetype)
+        - (Brand)-[:HAS_VOICE_VECTOR {dimension, score}]->(Brand) [self-loop for each vector]
+        - (Brand)-[:FORBIDS {constraint}]->(Brand) [self-loop for each negative constraint]
+        """
+        # Sync Archetype
+        if identity_core.archetype:
+            await session.run(
+                """
+                MATCH (b:Brand {brand_id: $brand_id})
+                MERGE (a:Archetype {name: $archetype})
+                MERGE (b)-[:HAS_ARCHETYPE]->(a)
+                """,
+                brand_id=brand_id,
+                archetype=identity_core.archetype
+            )
+        
+        # Sync Voice Vectors (self-loops)
+        if identity_core.voice_vectors:
+            for dimension, score in identity_core.voice_vectors.items():
+                await session.run(
+                    """
+                    MATCH (b:Brand {brand_id: $brand_id})
+                    MERGE (b)-[v:HAS_VOICE_VECTOR {dimension: $dimension}]->(b)
+                    SET v.score = $score
+                    """,
+                    brand_id=brand_id,
+                    dimension=dimension,
+                    score=score
+                )
+        
+        # Sync Negative Constraints (self-loops)
+        if identity_core.negative_constraints:
+            for constraint in identity_core.negative_constraints:
+                await session.run(
+                    """
+                    MATCH (b:Brand {brand_id: $brand_id})
+                    MERGE (b)-[f:FORBIDS {constraint: $constraint}]->(b)
+                    """,
+                    brand_id=brand_id,
+                    constraint=constraint
+                )
+
+    async def _sync_typography(
+        self, session: AsyncSession, brand_id: str, typography: Any
+    ) -> None:
+        """
+        Sync Typography node and relationship.
+        
+        Creates:
+        - (:Typography) node with family as primary key
+        - (Brand)-[:USES_TYPOGRAPHY {usage}]->(Typography)
+        """
+        await session.run(
+            """
+            MATCH (b:Brand {brand_id: $brand_id})
+            MERGE (t:Typography {family: $family})
+            SET t.weights = $weights,
+                t.usage_description = $usage
+            MERGE (b)-[r:USES_TYPOGRAPHY]->(t)
+            SET r.usage = $usage
+            """,
+            brand_id=brand_id,
+            family=typography.family,
+            weights=typography.weights,
+            usage=typography.usage
+        )
+
+    async def _sync_rule(
+        self, session: AsyncSession, brand_id: str, rule: Any
+    ) -> None:
+        """
+        Sync Brand Rule node and relationship.
+        
+        Creates:
+        - (:Rule) node with unique ID
+        - (Brand)-[:HAS_RULE]->(Rule)
+        """
+        # Generate a stable rule_id from brand_id + instruction hash
+        import hashlib
+        rule_id = hashlib.md5(f"{brand_id}:{rule.instruction}".encode()).hexdigest()
+        
+        await session.run(
+            """
+            MATCH (b:Brand {brand_id: $brand_id})
+            MERGE (r:Rule {rule_id: $rule_id})
+            SET r.category = $category,
+                r.instruction = $instruction,
+                r.severity = $severity,
+                r.negative_constraint = $negative_constraint
+            MERGE (b)-[:HAS_RULE]->(r)
+            """,
+            brand_id=brand_id,
+            rule_id=rule_id,
+            category=rule.category,
+            instruction=rule.instruction,
+            severity=rule.severity,
+            negative_constraint=rule.negative_constraint
+        )
+
+    async def _sync_contextual_rule(
+        self, session: AsyncSession, brand_id: str, contextual_rule: Any
+    ) -> None:
+        """
+        Sync Contextual Rule node and relationship (MOAT - Channel-specific governance).
+        
+        Creates:
+        - (:ContextualRule) node with unique ID
+        - (Brand)-[:HAS_CONTEXTUAL_RULE]->(ContextualRule)
+        """
+        # Generate a stable rule_id from brand_id + context + rule hash
+        import hashlib
+        rule_id = hashlib.md5(f"{brand_id}:{contextual_rule.context}:{contextual_rule.rule}".encode()).hexdigest()
+        
+        await session.run(
+            """
+            MATCH (b:Brand {brand_id: $brand_id})
+            MERGE (cr:ContextualRule {rule_id: $rule_id})
+            SET cr.context = $context,
+                cr.rule = $rule,
+                cr.priority = $priority,
+                cr.applies_to = $applies_to
+            MERGE (b)-[:HAS_CONTEXTUAL_RULE]->(cr)
+            """,
+            brand_id=brand_id,
+            rule_id=rule_id,
+            context=contextual_rule.context,
+            rule=contextual_rule.rule,
+            priority=contextual_rule.priority,
+            applies_to=contextual_rule.applies_to
+        )
+
+    async def _sync_asset_graph(
+        self, session: AsyncSession, brand_id: str, asset_graph: Any
+    ) -> None:
+        """
+        Sync Asset Graph (MOAT - Asset inventory).
+        
+        Creates:
+        - (Brand)-[:HAS_LOGO {variant, url}]->(Brand) [self-loop for each logo variant]
+        - (Brand)-[:HAS_TEMPLATE {name, url}]->(Brand) [self-loop for each template]
+        - (Brand)-[:HAS_PATTERN {name, url}]->(Brand) [self-loop for each pattern]
+        """
+        # Sync Logo variants
+        if asset_graph.logos:
+            for variant, url in asset_graph.logos.items():
+                await session.run(
+                    """
+                    MATCH (b:Brand {brand_id: $brand_id})
+                    MERGE (b)-[l:HAS_LOGO {variant: $variant}]->(b)
+                    SET l.url = $url
+                    """,
+                    brand_id=brand_id,
+                    variant=variant,
+                    url=url
+                )
+        
+        # Sync Templates
+        if asset_graph.templates:
+            for name, url in asset_graph.templates.items():
+                await session.run(
+                    """
+                    MATCH (b:Brand {brand_id: $brand_id})
+                    MERGE (b)-[t:HAS_TEMPLATE {name: $name}]->(b)
+                    SET t.url = $url
+                    """,
+                    brand_id=brand_id,
+                    name=name,
+                    url=url
+                )
+        
+        # Sync Patterns
+        if asset_graph.patterns:
+            for name, url in asset_graph.patterns.items():
+                await session.run(
+                    """
+                    MATCH (b:Brand {brand_id: $brand_id})
+                    MERGE (b)-[p:HAS_PATTERN {name: $name}]->(b)
+                    SET p.url = $url
+                    """,
+                    brand_id=brand_id,
+                    name=name,
+                    url=url
+                )
 
     async def sync_asset(self, asset: Asset) -> None:
         """

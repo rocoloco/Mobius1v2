@@ -1,0 +1,179 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* Industrial Design System - Mechanical Keyframes */
+@keyframes mechanicalPress {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(2px);
+  }
+}
+
+@keyframes mechanicalRelease {
+  0% {
+    transform: translateY(2px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes ledPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes mechanicalSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mechanicalFadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes screwRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reset and base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #e0e5ec;
+  color: #2d3436;
+}
+
+/* Selection styling */
+::selection {
+  background-color: #ff4757;
+  color: white;
+}
+
+/* Custom scrollbar for the Industrial aesthetic */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #e0e5ec;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(45, 52, 54, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(45, 52, 54, 0.5);
+}
+
+/* Enhanced focus states for industrial accessibility */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #ff4757;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(255, 71, 87, 0.2);
+}
+
+/* Disable default button styles */
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* Input reset */
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  background: transparent;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}
+
+/* Industrial component base styles */
+.industrial-component {
+  position: relative;
+  background-color: #e0e5ec;
+}
+
+/* Press physics base class */
+.press-physics {
+  transition: transform 100ms cubic-bezier(0.34, 1.56, 0.64, 1), 
+              box-shadow 100ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.press-physics:active {
+  transform: translateY(2px);
+}
+
+/* LED indicator base styles */
+.led-indicator {
+  border-radius: 50%;
+  transition: all 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Manufacturing detail styles */
+.screw {
+  width: 8px;
+  height: 8px;
+  background-color: #95a5a6;
+  border-radius: 50%;
+  box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+  position: absolute;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

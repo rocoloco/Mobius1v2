@@ -9,7 +9,6 @@ from mobius.storage.database import get_supabase_client
 from mobius.storage.graph import graph_storage
 from typing import List, Optional
 from datetime import datetime, timezone
-import asyncio
 import structlog
 
 logger = structlog.get_logger()
@@ -43,8 +42,9 @@ class BrandStorage:
         logger.info("brand_created", brand_id=brand.brand_id)
         created_brand = Brand.model_validate(result.data[0])
 
-        # Sync to Neo4j graph database (fully async, non-blocking)
-        asyncio.create_task(graph_storage.sync_brand(created_brand))
+        # Sync to Neo4j graph database (awaited to prevent connection cleanup race conditions)
+        # Graph sync is designed to fail gracefully and won't raise exceptions
+        await graph_storage.sync_brand(created_brand)
 
         return created_brand
 
@@ -136,8 +136,9 @@ class BrandStorage:
         logger.info("brand_updated", brand_id=brand_id)
         updated_brand = Brand.model_validate(result.data[0])
 
-        # Sync to Neo4j graph database (fully async, non-blocking)
-        asyncio.create_task(graph_storage.sync_brand(updated_brand))
+        # Sync to Neo4j graph database (awaited to prevent connection cleanup race conditions)
+        # Graph sync is designed to fail gracefully and won't raise exceptions
+        await graph_storage.sync_brand(updated_brand)
 
         return updated_brand
 

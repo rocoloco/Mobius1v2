@@ -1,0 +1,44 @@
+{
+  "colors": [
+    {
+      "hex": "#635BFF",
+      "name": "Purple",
+      "usage": "Primary",
+      "usage_weight": 0.4
+    },
+    {
+      "hex": "#FFFFFF",
+      "name": "White",
+      "usage": "Background, Text",
+      "usage_weight": 0.3
+    },
+    {
+      "hex": "#000000",
+      "name": "Black",
+      "usage": "Text, Buttons",
+      "usage_weight": 0.2
+    },
+    {
+      "hex": "#F2F4F7",
+      "name": "Light Gray",
+      "usage": "UI Elements",
+      "usage_weight": 0.1
+    }
+  ],
+  "typography": [
+    {
+      "family": "Inter",
+      "usage": "Body text, Headlines"
+    }
+  ],
+  "visual_style": {
+    "imagery_style": "Abstract, Data Visualization",
+    "keywords": [
+      "clean",
+      "modern",
+      "professional",
+      "data-driven"
+    ]
+  },
+  "url": "https://stripe.com"
+}

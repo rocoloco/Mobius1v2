@@ -34,12 +34,14 @@ async def ingest_brand_handler(
     filename: str,
     logo_file: Optional[bytes] = None,
     logo_filename: Optional[str] = None,
+    visual_scan_data: Optional[str] = None,
 ) -> IngestBrandResponse:
     """
-    Handle brand guidelines PDF ingestion with optional logo upload.
+    Handle brand guidelines PDF ingestion with optional logo upload and visual scan data.
 
     Validates file size, MIME type, and PDF header before processing.
     Optionally accepts a logo file (PNG with transparency preferred).
+    Optionally accepts visual scan data from website analysis (JSON string).
 
     Args:
         organization_id: Organization ID
@@ -49,6 +51,7 @@ async def ingest_brand_handler(
         filename: Original filename
         logo_file: Optional logo image bytes (PNG with transparency preferred)
         logo_filename: Optional logo filename
+        visual_scan_data: Optional JSON string with visual scan results (identity_core, colors, etc.)
 
     Returns:
         IngestBrandResponse with brand_id and status
@@ -140,6 +143,7 @@ async def ingest_brand_handler(
     from mobius.models.brand import Brand
     from mobius.storage.files import FileStorage
     import uuid
+    import json
     
     brand_id = str(uuid.uuid4())
     
@@ -163,6 +167,74 @@ async def ingest_brand_handler(
             source_filename=filename,
         )
         needs_review = [f"PDF parsing failed: {str(e)}"]
+    
+    # Merge visual scan data if provided (MOAT structure enrichment)
+    if visual_scan_data:
+        try:
+            visual_data = json.loads(visual_scan_data)
+            logger.info("visual_scan_data_received", request_id=request_id, has_identity_core="identity_core" in visual_data)
+            
+            # Enrich with Identity Core (archetype, voice vectors)
+            if "identity_core" in visual_data and visual_data["identity_core"]:
+                from mobius.models.brand import IdentityCore
+                
+                identity_data = visual_data["identity_core"]
+                guidelines.identity_core = IdentityCore(
+                    archetype=identity_data.get("archetype"),
+                    voice_vectors=identity_data.get("voice_vectors", {}),
+                    negative_constraints=[]  # PDF parser should provide these
+                )
+                logger.info(
+                    "identity_core_enriched",
+                    request_id=request_id,
+                    archetype=guidelines.identity_core.archetype,
+                    voice_vector_count=len(guidelines.identity_core.voice_vectors)
+                )
+            
+            # Enrich colors with visual scan data (if PDF didn't extract enough)
+            if "colors" in visual_data and len(guidelines.colors) < 3:
+                from mobius.models.brand import Color
+                
+                for color_data in visual_data["colors"]:
+                    # Check if color already exists
+                    if not any(c.hex == color_data.get("hex") for c in guidelines.colors):
+                        guidelines.colors.append(Color(
+                            name=color_data.get("name", "Unnamed"),
+                            hex=color_data.get("hex"),
+                            usage=color_data.get("usage", "secondary"),
+                            usage_weight=color_data.get("usage_weight", 0.1),
+                            context=f"Extracted from visual scan"
+                        ))
+                
+                logger.info(
+                    "colors_enriched_from_visual_scan",
+                    request_id=request_id,
+                    total_colors=len(guidelines.colors)
+                )
+            
+            # Enrich typography with visual scan data (if PDF didn't extract)
+            if "typography" in visual_data and len(guidelines.typography) == 0:
+                from mobius.models.brand import Typography
+                
+                for typo_data in visual_data["typography"]:
+                    guidelines.typography.append(Typography(
+                        family=typo_data.get("family"),
+                        weights=["400", "600", "700"],  # Default weights
+                        usage=typo_data.get("usage", "Body text")
+                    ))
+                
+                logger.info(
+                    "typography_enriched_from_visual_scan",
+                    request_id=request_id,
+                    total_fonts=len(guidelines.typography)
+                )
+            
+        except json.JSONDecodeError as e:
+            logger.warning("visual_scan_data_invalid_json", request_id=request_id, error=str(e))
+            needs_review.append("Visual scan data was invalid JSON")
+        except Exception as e:
+            logger.warning("visual_scan_data_processing_failed", request_id=request_id, error=str(e))
+            needs_review.append(f"Visual scan data processing failed: {str(e)}")
     
     # Upload PDF to storage
     file_storage = FileStorage()
@@ -1138,14 +1210,83 @@ async def generate_handler(
         from mobius.graphs.generation import run_generation_workflow
         
         if async_mode:
-            # TODO: Run in background task
-            logger.warning("async_mode_not_implemented", request_id=request_id)
-            # For now, run synchronously
-            final_state = await run_generation_workflow(
-                brand_id=brand_id,
-                prompt=prompt,
+            # Run in background - return immediately with job_id
+            logger.info(
+                "async_generation_started",
+                request_id=request_id,
                 job_id=job_id,
+                brand_id=brand_id
             )
+            
+            # Import asyncio to create background task
+            import asyncio
+            
+            # Define background task
+            async def run_workflow_background():
+                # Create new JobStorage instance for background task
+                bg_job_storage = JobStorage()
+                
+                try:
+                    final_state = await run_generation_workflow(
+                        brand_id=brand_id,
+                        prompt=prompt,
+                        job_id=job_id,
+                    )
+                    
+                    # Update job with final state
+                    image_url = final_state.get("current_image_url") or final_state.get("image_uri")
+                    
+                    updates = {
+                        "status": final_state.get("status", "completed"),
+                        "progress": 100.0,
+                        "state": {
+                            "prompt": prompt,
+                            "generation_params": generation_params,
+                            "template_id": template_id,
+                            "compliance_scores": final_state.get("compliance_scores", []),
+                            "is_approved": final_state.get("is_approved", False),
+                            "attempt_count": final_state.get("attempt_count", 0),
+                            "image_uri": image_url,
+                        },
+                    }
+                    
+                    await bg_job_storage.update_job(job_id, updates)
+                    
+                    logger.info(
+                        "async_generation_completed",
+                        request_id=request_id,
+                        job_id=job_id,
+                        status=updates["status"]
+                    )
+                except Exception as e:
+                    logger.error(
+                        "async_generation_failed",
+                        request_id=request_id,
+                        job_id=job_id,
+                        error=str(e)
+                    )
+                    # Update job with error status
+                    await bg_job_storage.update_job(job_id, {
+                        "status": "failed",
+                        "progress": 0.0,
+                        "state": {
+                            "prompt": prompt,
+                            "error": str(e)
+                        }
+                    })
+            
+            # Create background task
+            asyncio.create_task(run_workflow_background())
+            
+            # Return immediately
+            return GenerateResponse(
+                job_id=job_id,
+                status="processing",
+                message="Generation started in background. Poll /v1/jobs/{job_id} for status.",
+                image_url=None,
+                compliance_score=None,
+                request_id=request_id,
+            ).model_dump()
         else:
             # Run synchronously
             final_state = await run_generation_workflow(
@@ -1153,43 +1294,43 @@ async def generate_handler(
                 prompt=prompt,
                 job_id=job_id,
             )
-        
-        # Update job with final state
-        image_url = final_state.get("current_image_url") or final_state.get("image_uri")
+            
+            # Update job with final state
+            image_url = final_state.get("current_image_url") or final_state.get("image_uri")
 
-        updates = {
-            "status": final_state.get("status", "completed"),
-            "progress": 100.0,
-            "state": {
-                "prompt": prompt,
-                "generation_params": generation_params,
-                "template_id": template_id,
-                "compliance_scores": final_state.get("compliance_scores", []),
-                "is_approved": final_state.get("is_approved", False),
-                "attempt_count": final_state.get("attempt_count", 0),
-                "image_uri": image_url,  # Store image in state
-            },
-        }
+            updates = {
+                "status": final_state.get("status", "completed"),
+                "progress": 100.0,
+                "state": {
+                    "prompt": prompt,
+                    "generation_params": generation_params,
+                    "template_id": template_id,
+                    "compliance_scores": final_state.get("compliance_scores", []),
+                    "is_approved": final_state.get("is_approved", False),
+                    "attempt_count": final_state.get("attempt_count", 0),
+                    "image_uri": image_url,
+                },
+            }
 
-        await job_storage.update_job(job_id, updates)
+            await job_storage.update_job(job_id, updates)
 
-        final_status = updates["status"]
+            final_status = updates["status"]
 
-        logger.info(
-            "generation_workflow_completed",
-            request_id=request_id,
-            job_id=job_id,
-            final_status=final_status,
-        )
+            logger.info(
+                "generation_workflow_completed",
+                request_id=request_id,
+                job_id=job_id,
+                final_status=final_status,
+            )
 
-        return GenerateResponse(
-            job_id=job_id,
-            status=final_status,
-            message="Generation completed successfully" + (f" using template {template_info['template_name']}" if template_info else ""),
-            image_url=image_url,  # Include the image URL in sync response
-            compliance_score=final_state.get("compliance_scores", [{}])[-1].get("overall_score") if final_state.get("compliance_scores") else None,
-            request_id=request_id,
-        ).model_dump()
+            return GenerateResponse(
+                job_id=job_id,
+                status=final_status,
+                message="Generation completed successfully" + (f" using template {template_info['template_name']}" if template_info else ""),
+                image_url=image_url,
+                compliance_score=final_state.get("compliance_scores", [{}])[-1].get("overall_score") if final_state.get("compliance_scores") else None,
+                request_id=request_id,
+            ).model_dump()
         
     except (NotFoundError, ValidationError):
         raise
@@ -1515,17 +1656,71 @@ async def review_job_handler(
         )
 
         # Resume LangGraph workflow from correction node
-        from mobius.graphs.generation import run_generation_workflow
+        from mobius.graphs.generation import create_generation_workflow
 
-        # Run workflow asynchronously (don't await - let it run in background)
-        import asyncio
-        asyncio.create_task(
-            run_generation_workflow(
-                brand_id=job.brand_id,
-                prompt=job.prompt,
-                job_id=job_id,
+        # Extract prompt from job state
+        prompt = state.get("prompt", "")
+        if not prompt:
+            raise ValidationError(
+                code="PROMPT_MISSING",
+                message="Job state does not contain original prompt",
+                request_id=request_id,
+                details={"job_id": job_id}
             )
-        )
+
+        # Run workflow asynchronously with existing state
+        import asyncio
+        
+        async def resume_workflow():
+            bg_job_storage = JobStorage()
+            try:
+                # Create workflow
+                workflow = create_generation_workflow()
+                
+                # Resume from existing state (preserved from needs_review)
+                # The workflow will route through correct -> generate -> audit
+                final_state = await workflow.ainvoke(state)
+                
+                # Update job with final state
+                image_url = final_state.get("current_image_url") or final_state.get("image_uri")
+                
+                updates = {
+                    "status": final_state.get("status", "completed"),
+                    "progress": 100.0,
+                    "state": {
+                        **state,
+                        "compliance_scores": final_state.get("compliance_scores", []),
+                        "is_approved": final_state.get("is_approved", False),
+                        "attempt_count": final_state.get("attempt_count", 0),
+                        "image_uri": image_url,
+                        "current_image_url": image_url,
+                    },
+                }
+                
+                await bg_job_storage.update_job(job_id, updates)
+                
+                logger.info(
+                    "workflow_resumed_completed",
+                    request_id=request_id,
+                    job_id=job_id,
+                    status=updates["status"]
+                )
+            except Exception as e:
+                logger.error(
+                    "workflow_resume_failed",
+                    request_id=request_id,
+                    job_id=job_id,
+                    error=str(e)
+                )
+                await bg_job_storage.update_job(job_id, {
+                    "status": "failed",
+                    "state": {
+                        **state,
+                        "error": str(e)
+                    }
+                })
+        
+        asyncio.create_task(resume_workflow())
 
         logger.info(
             "review_job_success",
