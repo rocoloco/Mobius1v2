@@ -11,7 +11,7 @@
 import { describe, it } from 'vitest';
 import * as fc from 'fast-check';
 import { tokenUtils } from '../tokens';
-import type { ShadowVariant, ShadowType } from '../neumorphic';
+import type { ShadowType } from '../neumorphic';
 
 describe('Property Test: Shadow Depth Pattern Preservation', () => {
   /**

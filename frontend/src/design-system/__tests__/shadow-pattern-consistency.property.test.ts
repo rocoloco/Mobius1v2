@@ -8,9 +8,9 @@
  * with correct colors and positioning for unidirectional illumination compliance.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'vitest';
 import * as fc from 'fast-check';
-import { NeumorphicUtils, ShadowVariant, ShadowType } from '../neumorphic';
+import { NeumorphicUtils, type ShadowVariant, type ShadowType } from '../neumorphic';
 import { tokenUtils } from '../tokens';
 
 describe('Property Test: Neumorphic Shadow Consistency', () => {
@@ -145,7 +145,7 @@ function validateShadowColors(shadowCSS: string): boolean {
 /**
  * Helper function to validate shadow positioning for unidirectional illumination
  */
-function validateShadowPositioning(shadowCSS: string, type: ShadowType): boolean {
+function validateShadowPositioning(shadowCSS: string, _type: ShadowType): boolean {
   // Extract shadow parts
   const shadowParts = shadowCSS.split(',').map(s => s.trim());
   

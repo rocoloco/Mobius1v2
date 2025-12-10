@@ -28,6 +28,25 @@ export {
   useMechanicalAnimation 
 } from './animations';
 
+// Industrial Components
+export {
+  BaseIndustrialComponent,
+  ManufacturingDetails,
+  IndustrialCard,
+  IndustrialButton,
+  IndustrialInput,
+  IndustrialIndicator,
+  IndustrialIndicatorGroup,
+  IndustrialComponents,
+  type IndustrialComponentProps,
+  type BaseIndustrialComponentProps,
+  type IndustrialCardProps,
+  type IndustrialButtonProps,
+  type IndustrialInputProps,
+  type IndustrialIndicatorProps,
+  type IndustrialIndicatorGroupProps,
+} from './components';
+
 /**
  * Design System Version
  */
@@ -37,6 +56,7 @@ export const DESIGN_SYSTEM_VERSION = '1.0.0';
 import { industrialTokens as tokens, tokenUtils } from './tokens';
 import { NeumorphicUtils } from './neumorphic';
 import { AnimationUtils } from './animations';
+import { IndustrialComponents } from './components';
 
 /**
  * Quick access utilities
@@ -51,6 +71,7 @@ export const industrial = {
   },
   neumorphic: NeumorphicUtils,
   animation: AnimationUtils,
+  components: IndustrialComponents,
 };
 
 /**

@@ -109,7 +109,7 @@ class ShadowCalculator {
    */
   generateShadowSet(inset: boolean = false) {
     return {
-      subtle: this.calculateShadow(0.5, inset),
+      subtle: this.calculateShadow(0.7, inset), // Increased from 0.5 to make more visible
       normal: this.calculateShadow(1, inset),
       deep: this.calculateShadow(1.5, inset),
     };

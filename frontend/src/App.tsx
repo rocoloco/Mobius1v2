@@ -2,14 +2,38 @@ import React, { useState } from 'react';
 import { BrandProvider, useBrandContext } from './context';
 import { Header, Vault } from './components/layout';
 import { Workbench, Onboarding } from './views';
+import { IndustrialDemo } from './design-system/demo';
 
-type View = 'workbench' | 'onboard';
+type View = 'workbench' | 'onboard' | 'demo';
 
 const AppContent: React.FC = () => {
   const { brands, activeBrand, assets, setActiveBrandId, addBrand } = useBrandContext();
 
   const [isVaultOpen, setIsVaultOpen] = useState(false);
-  const [view, setView] = useState<View>('workbench');
+  const [view, setView] = useState<View>('demo'); // Start with demo to show new components
+
+  // Show demo view
+  if (view === 'demo') {
+    return (
+      <div className="relative">
+        <div className="absolute top-4 right-4 z-50 flex gap-2">
+          <button
+            onClick={() => setView('workbench')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Back to Workbench
+          </button>
+          <button
+            onClick={() => setView('onboard')}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            Onboarding
+          </button>
+        </div>
+        <IndustrialDemo />
+      </div>
+    );
+  }
 
   // First-time user flow: if no brands, show onboarding
   const shouldShowOnboarding = brands.length === 0 || view === 'onboard';
@@ -47,6 +71,7 @@ const AppContent: React.FC = () => {
         onSelectBrand={setActiveBrandId}
         onToggleVault={() => setIsVaultOpen(!isVaultOpen)}
         onAddBrand={() => setView('onboard')}
+        onShowDemo={() => setView('demo')}
       />
 
       {/* MAIN WORKSPACE */}

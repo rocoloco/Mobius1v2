@@ -80,6 +80,27 @@ export class NeumorphicUtils {
   }
 
   /**
+   * Generate realistic industrial bolt base style (deprecated - use IndustrialBolts components instead)
+   */
+  static getIndustrialBoltStyle(): React.CSSProperties {
+    return {
+      width: '12px',
+      height: '12px',
+      borderRadius: '50%',
+      position: 'absolute' as const,
+      background: `radial-gradient(circle at 30% 30%, #b8c5d1 0%, #95a3b3 40%, #7a8794 100%)`,
+      boxShadow: `
+        inset 0 0 0 0.5px #6a7580,
+        inset 0 1px 2px rgba(0,0,0,0.2),
+        0 1px 2px rgba(0,0,0,0.3),
+        0 0 0 0.5px rgba(255,255,255,0.1)
+      `,
+    };
+  }
+
+
+
+  /**
    * Generate vent slot pattern styles
    */
   static getVentSlotStyle(): React.CSSProperties {

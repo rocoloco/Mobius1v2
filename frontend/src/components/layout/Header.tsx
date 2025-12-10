@@ -9,6 +9,7 @@ interface HeaderProps {
   onSelectBrand: (brandId: string) => void;
   onToggleVault: () => void;
   onAddBrand: () => void;
+  onShowDemo?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectBrand,
   onToggleVault,
   onAddBrand,
+  onShowDemo,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -104,6 +106,17 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* RIGHT: Global Tools */}
       <div className="flex items-center gap-3">
+        {/* Demo Button */}
+        {onShowDemo && (
+          <PhysicalButton
+            variant="default"
+            onClick={onShowDemo}
+            className="!px-3 !h-9 gap-2 text-accent"
+          >
+            <span className="hidden md:inline">DESIGN SYSTEM</span>
+          </PhysicalButton>
+        )}
+
         {/* The Vault Toggle */}
         <PhysicalButton
           variant="default"
