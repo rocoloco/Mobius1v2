@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Cpu, Send } from 'lucide-react';
-import { PhysicalButton } from '../physical';
+import { MigratedPhysicalButton as PhysicalButton } from '../physical';
 
 interface CockpitInputProps {
   onGenerate: (prompt: string) => void;

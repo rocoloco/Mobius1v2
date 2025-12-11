@@ -1,30 +1,43 @@
 import React from 'react';
+import { TorxHeadBolt } from '../../design-system/components/IndustrialBolts';
 
 interface HardwareScrewProps {
   className?: string;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
+  type?: 'phillips' | 'hex' | 'torx';
 }
 
 export const HardwareScrew: React.FC<HardwareScrewProps> = ({
   className = '',
-  size = 'md'
+  size = 'lg',
+  type = 'torx'
 }) => {
-  const sizeStyles = {
-    sm: 'w-2 h-2',
-    md: 'w-2.5 h-2.5',
+  const sizeMap = {
+    sm: 16,
+    md: 18,
+    lg: 20
   };
 
   return (
     <div
       className={`
-        ${sizeStyles[size]}
+        w-5 h-5
         rounded-full
-        bg-ink/10
-        shadow-[inset_1px_1px_2px_rgba(0,0,0,0.2)]
+        flex items-center justify-center
         ${className}
       `}
+      style={{
+        backgroundColor: '#e0e5ec', // Same as industrialTokens.colors.surface.primary
+        boxShadow: `
+          inset 2px 2px 4px rgba(163, 177, 198, 0.6),
+          inset -2px -2px 4px rgba(255, 255, 255, 0.8),
+          0 1px 2px rgba(0, 0, 0, 0.1)
+        `
+      }}
       aria-hidden="true"
-    />
+    >
+      <TorxHeadBolt size={sizeMap[size]} />
+    </div>
   );
 };
 

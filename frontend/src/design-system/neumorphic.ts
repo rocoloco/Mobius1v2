@@ -31,6 +31,20 @@ export class NeumorphicUtils {
   }
 
   /**
+   * Generate premium shadow styles with inner glow for solid resin effect
+   */
+  static getPremiumShadowStyle(variant: ShadowVariant = 'normal', type: ShadowType = 'raised'): React.CSSProperties {
+    const baseShadow = tokenUtils.getShadow(variant, type);
+    const innerGlow = type === 'raised' 
+      ? 'inset 0 1px 1px rgba(255,255,255,0.4)' 
+      : 'inset 0 -1px 1px rgba(255,255,255,0.2)';
+    
+    return {
+      boxShadow: `${innerGlow}, ${baseShadow}`,
+    };
+  }
+
+  /**
    * Generate press effect styles for buttons
    */
   static getPressStyles(): {
@@ -61,6 +75,40 @@ export class NeumorphicUtils {
     return {
       backgroundColor: color,
       boxShadow: glowIntensity > 0 ? `0 0 ${10 * glowIntensity}px ${color}, 0 0 ${20 * glowIntensity}px ${color}, 0 0 ${30 * glowIntensity}px ${color}` : 'none',
+      transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
+    };
+  }
+
+  /**
+   * Generate diffused LED styles for sub-surface scattering effect
+   * Creates the appearance of LEDs buried under translucent plastic
+   */
+  static getDiffusedLEDStyle(status: 'off' | 'on' | 'error' | 'warning', intensity: number = 1): React.CSSProperties {
+    const color = tokenUtils.getLEDColor(status);
+    const glowIntensity = status === 'off' ? 0 : intensity;
+    
+    if (glowIntensity === 0) {
+      return {
+        backgroundColor: 'rgba(200, 200, 200, 0.3)', // Dim plastic appearance when off
+        border: '1px solid rgba(180, 180, 180, 0.4)',
+        filter: 'blur(0px)',
+        transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
+      };
+    }
+
+    return {
+      backgroundColor: color,
+      // Multi-layer glow for sub-surface scattering
+      boxShadow: `
+        inset 0 0 ${4 * glowIntensity}px rgba(255, 255, 255, 0.6),
+        0 0 ${8 * glowIntensity}px ${color},
+        0 0 ${16 * glowIntensity}px ${color},
+        0 0 ${24 * glowIntensity}px ${color}
+      `,
+      // Soft blur for diffused light through plastic
+      filter: `blur(${0.5 * glowIntensity}px)`,
+      // Subtle border for plastic housing
+      border: `1px solid rgba(255, 255, 255, ${0.2 * glowIntensity})`,
       transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
     };
   }
@@ -157,6 +205,22 @@ export class NeumorphicUtils {
       default:
         return {};
     }
+  }
+
+  /**
+   * Generate micro-texture for premium soft plastic finish
+   * Simulates the pebble finish found on high-end electronics
+   */
+  static getMicroTexture(intensity: 'subtle' | 'normal' | 'fine' = 'normal'): React.CSSProperties {
+    const textures = {
+      subtle: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.015'/%3E%3C/svg%3E\")",
+      normal: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3E%3C/svg%3E\")",
+      fine: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.025'/%3E%3C/svg%3E\")"
+    };
+
+    return {
+      backgroundImage: textures[intensity],
+    };
   }
 }
 

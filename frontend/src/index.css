@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* Industrial Design System - Mechanical Keyframes */
@@ -73,11 +73,13 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #e0e5ec;
   color: #2d3436;
+  /* Micro-texture pebble finish for premium soft plastic feel */
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3E%3C/svg%3E");
 }
 
 /* Selection styling */
@@ -120,12 +122,12 @@ button {
   border: none;
   background: none;
   cursor: pointer;
-  font-family: inherit;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
 }
 
 /* Input reset */
 input, textarea, select {
-  font-family: inherit;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
   font-size: inherit;
   border: none;
   background: transparent;
@@ -135,10 +137,86 @@ input:focus, textarea:focus, select:focus {
   outline: none;
 }
 
+/* Industrial Font Hierarchy */
+.font-primary {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+.font-secondary {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Typography Scale for Industrial Design */
+.text-display {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.text-heading {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.text-subheading {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 500;
+}
+
+.text-body {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.text-body-medium {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.text-caption {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.text-label {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 0.875rem;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.text-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 400;
+}
+
 /* Industrial component base styles */
 .industrial-component {
   position: relative;
   background-color: #e0e5ec;
+}
+
+/* Micro-texture utility classes for premium soft plastic finish */
+.micro-texture {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3E%3C/svg%3E");
+}
+
+.micro-texture-subtle {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.015'/%3E%3C/svg%3E");
+}
+
+.micro-texture-fine {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.025'/%3E%3C/svg%3E");
 }
 
 /* Press physics base class */
@@ -157,6 +235,211 @@ input:focus, textarea:focus, select:focus {
   transition: all 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* Diffused LED styles for sub-surface scattering */
+.led-diffused {
+  position: relative;
+  overflow: hidden;
+}
+
+.led-diffused::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: inherit;
+  border-radius: inherit;
+  filter: blur(1px);
+  opacity: 0.7;
+  z-index: -1;
+}
+
+/* Enhanced glow for active diffused LEDs */
+.led-diffused.led-active {
+  backdrop-filter: blur(0.5px);
+}
+
+/* Translucent resin keycap effects */
+.resin-keycap {
+  position: relative;
+  overflow: hidden;
+}
+
+.resin-keycap::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.1) 0%, 
+    transparent 50%, 
+    rgba(0, 0, 0, 0.05) 100%
+  );
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.resin-keycap-active {
+  animation: resinBloom 0.3s ease-out;
+}
+
+@keyframes resinBloom {
+  0% {
+    filter: brightness(1) saturate(1);
+  }
+  50% {
+    filter: brightness(1.2) saturate(1.3);
+  }
+  100% {
+    filter: brightness(1.1) saturate(1.1);
+  }
+}
+
+/* Light diffusion text effect */
+.light-diffusion {
+  text-shadow: 
+    0 0 2px rgba(255, 255, 255, 0.8),
+    0 0 4px rgba(255, 255, 255, 0.4),
+    0 0 6px rgba(255, 255, 255, 0.2);
+}
+
+/* Industrial Viewport Enhancements */
+.technical-grid {
+  background-image: 
+    linear-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.1) 1px, transparent 1px),
+    linear-gradient(rgba(59, 130, 246, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+  animation: gridPulse 4s ease-in-out infinite;
+}
+
+@keyframes gridPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.5; }
+}
+
+/* Glass viewport overlay - Enhanced visibility */
+.glass-viewport {
+  background: linear-gradient(135deg,
+    rgba(255, 255, 255, 0.25) 0%,
+    rgba(255, 255, 255, 0.15) 20%,
+    rgba(255, 255, 255, 0.08) 40%,
+    transparent 70%
+  );
+  backdrop-filter: blur(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  border-radius: inherit;
+}
+
+/* Additional glass reflection effect */
+.glass-reflection {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 30%;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Industrial standby state */
+.system-standby {
+  font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.standby-indicator {
+  animation: standbyPulse 2s ease-in-out infinite;
+}
+
+@keyframes standbyPulse {
+  0%, 100% { 
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+/* Panel seams and joinery - Proper structural separation */
+.panel-seam {
+  position: relative;
+}
+
+.panel-seam::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    transparent 20%,
+    rgba(0, 0, 0, 0.05) 22%,
+    rgba(0, 0, 0, 0.1) 23%,
+    rgba(255, 255, 255, 0.05) 24%,
+    transparent 25%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.panel-seam::after {
+  content: '';
+  position: absolute;
+  top: 10%;
+  left: 22%;
+  width: 3px;
+  height: 80%;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.15) 10%,
+    rgba(0, 0, 0, 0.25) 50%,
+    rgba(0, 0, 0, 0.15) 90%,
+    transparent 100%
+  );
+  box-shadow: 
+    1px 0 0 rgba(255, 255, 255, 0.1),
+    -1px 0 0 rgba(0, 0, 0, 0.1),
+    inset 1px 0 0 rgba(0, 0, 0, 0.2);
+  border-radius: 1px;
+  z-index: 1;
+}
+
+/* Cooling vents */
+.cooling-vents {
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0px,
+    transparent 8px,
+    rgba(0, 0, 0, 0.1) 8px,
+    rgba(0, 0, 0, 0.1) 12px,
+    rgba(255, 255, 255, 0.05) 12px,
+    rgba(255, 255, 255, 0.05) 13px,
+    transparent 13px,
+    transparent 20px
+  );
+}
+
+/* Surface texture noise */
+.surface-texture {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
 /* Manufacturing detail styles */
 .screw {
   width: 8px;
@@ -165,6 +448,198 @@ input:focus, textarea:focus, select:focus {
   border-radius: 50%;
   box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
   position: absolute;
+}
+
+/* High Contrast Mode for Accessibility */
+.high-contrast {
+  --industrial-surface-primary: #ffffff;
+  --industrial-surface-secondary: #f8f9fa;
+  --industrial-text-primary: #000000;
+  --industrial-text-secondary: #333333;
+  --industrial-shadow-light: #000000;
+  --industrial-shadow-dark: #000000;
+}
+
+.high-contrast * {
+  border-color: #000000 !important;
+}
+
+.high-contrast button,
+.high-contrast input,
+.high-contrast [role="button"] {
+  border: 2px solid #000000 !important;
+}
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Custom neumorphic shadows for interactive cards */
+.shadow-neumorphic-normal {
+  box-shadow: 
+    8px 8px 16px rgba(163, 177, 198, 0.6),
+    -8px -8px 16px rgba(255, 255, 255, 0.5);
+}
+
+.shadow-neumorphic-deep {
+  box-shadow: 
+    12px 12px 24px rgba(163, 177, 198, 0.8),
+    -12px -12px 24px rgba(255, 255, 255, 0.7);
+}
+
+/* Interactive card hover effects - matches elevated card exactly with premium inner glow */
+.interactive-card-hover {
+  background-color: #e0e5ec !important; /* Industrial surface color */
+  transition: all 0.2s ease-out !important;
+  cursor: pointer !important;
+  /* Match elevated card's deep raised shadows with premium inner glow */
+  box-shadow: 
+    inset 0 1px 1px rgba(255,255,255,0.4),
+    12px 12px 24px #babecc, 
+    -12px -12px 24px #ffffff !important;
+}
+
+.interactive-card-hover:hover {
+  background-color: #f8fafc !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  transform: translateY(-2px) scale(1.01) !important;
+  box-shadow: 
+    inset 0 1px 2px rgba(255,255,255,0.5),
+    0 10px 25px rgba(0, 0, 0, 0.1),
+    0 4px 10px rgba(0, 0, 0, 0.05),
+    8px 8px 16px rgba(163, 177, 198, 0.4),
+    -8px -8px 16px rgba(255, 255, 255, 0.6) !important;
+}
+
+.interactive-card-hover:active {
+  transform: translateY(0px) scale(0.99) !important;
+  box-shadow: 
+    inset 0 -1px 1px rgba(255,255,255,0.2),
+    0 2px 8px rgba(0, 0, 0, 0.1),
+    4px 4px 8px rgba(163, 177, 198, 0.6),
+    -4px -4px 8px rgba(255, 255, 255, 0.8) !important;
+}
+
+.focus-within\:not-sr-only:focus-within .sr-only {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* Skip links styling */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 6px;
+  background: #2563eb;
+  color: white;
+  padding: 8px;
+  text-decoration: none;
+  border-radius: 4px;
+  z-index: 1000;
+}
+
+.skip-link:focus {
+  top: 6px;
+}
+
+/* Better contrast for disabled elements */
+button:disabled,
+input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Enhanced keyboard navigation indicators */
+*:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Button variant enhancements for better visual differentiation */
+.button-primary {
+  background: linear-gradient(to bottom, #3b82f6, #2563eb) !important;
+}
+
+.button-danger {
+  background: linear-gradient(to bottom, #ef4444, #dc2626) !important;
+}
+
+.button-success {
+  background: linear-gradient(to bottom, #10b981, #059669) !important;
+}
+
+.button-emergency {
+  background: linear-gradient(to bottom, #f97316, #ef4444) !important;
+}
+
+.button-industrial {
+  color: #ea580c !important;
+  border-color: rgba(234, 88, 12, 0.6) !important;
+}
+
+.button-outline {
+  background: transparent !important;
+  border-width: 2px !important;
+  border-color: #6b7280 !important;
+}
+
+.button-ghost {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+/* Hide scrollbar for mobile swipe navigation */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Touch-friendly interactions */
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+/* Mobile-optimized spacing */
+@media (max-width: 640px) {
+  .mobile-compact {
+    padding: 1rem;
+  }
+  
+  .mobile-text-sm {
+    font-size: 0.875rem;
+  }
+}
+
+/* Improved button focus states for industrial theme */
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 3px solid #ff4757;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(255, 71, 87, 0.2);
+}
+
+/* Status indicator accessibility improvements */
+[role="status"] {
+  position: relative;
 }
 
 /* Reduced motion support */
@@ -176,4 +651,26 @@ input:focus, textarea:focus, select:focus {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+/* Custom scrollbar for Generation History */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(163, 177, 198, 0.4) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(163, 177, 198, 0.4);
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(163, 177, 198, 0.6);
 }

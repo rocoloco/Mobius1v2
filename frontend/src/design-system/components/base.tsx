@@ -7,7 +7,7 @@
 import React from 'react';
 import { industrialTokens } from '../tokens';
 import { NeumorphicUtils, type ShadowVariant, type ShadowType } from '../neumorphic';
-import { PhillipsHeadBolt } from './IndustrialBolts';
+import { PhillipsHeadBolt, TorxHeadBolt } from './IndustrialBolts';
 
 /**
  * Base industrial component props interface
@@ -57,19 +57,19 @@ export const ManufacturingDetails: React.FC<ManufacturingDetailsProps> = ({
         />
       )}
       
-      {/* Corner bolts with Phillips head screw indentations */}
+      {/* Corner bolts with Torx head screw indentations */}
       {screws && (
         <>
-          <PhillipsHeadBolt 
+          <TorxHeadBolt 
             className="absolute top-2 left-2"
           />
-          <PhillipsHeadBolt 
+          <TorxHeadBolt 
             className="absolute top-2 right-2"
           />
-          <PhillipsHeadBolt 
+          <TorxHeadBolt 
             className="absolute bottom-2 left-2"
           />
-          <PhillipsHeadBolt 
+          <TorxHeadBolt 
             className="absolute bottom-2 right-2"
           />
         </>

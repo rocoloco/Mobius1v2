@@ -29,6 +29,49 @@ export interface IndustrialDesignTokens {
       warning: string;
     };
   };
+  typography: {
+    fontFamily: {
+      primary: string;
+      secondary: string;
+      mono: string;
+    };
+    scale: {
+      display: {
+        fontSize: string;
+        lineHeight: string;
+        fontWeight: string;
+        letterSpacing: string;
+      };
+      heading: {
+        fontSize: string;
+        lineHeight: string;
+        fontWeight: string;
+        letterSpacing: string;
+      };
+      subheading: {
+        fontSize: string;
+        lineHeight: string;
+        fontWeight: string;
+      };
+      body: {
+        fontSize: string;
+        lineHeight: string;
+        fontWeight: string;
+      };
+      caption: {
+        fontSize: string;
+        lineHeight: string;
+        fontWeight: string;
+      };
+      label: {
+        fontSize: string;
+        lineHeight: string;
+        fontWeight: string;
+        letterSpacing: string;
+        textTransform: string;
+      };
+    };
+  };
   shadows: {
     neumorphic: {
       raised: {
@@ -144,6 +187,50 @@ export const industrialTokens: IndustrialDesignTokens = {
       on: '#00b894',
       error: '#e17055',
       warning: '#fdcb6e',
+    },
+  },
+  
+  typography: {
+    fontFamily: {
+      primary: '"Space Grotesk", system-ui, sans-serif',
+      secondary: '"IBM Plex Sans", system-ui, sans-serif',
+      mono: '"JetBrains Mono", monospace',
+    },
+    scale: {
+      display: {
+        fontSize: '3rem',
+        lineHeight: '1.1',
+        fontWeight: '700',
+        letterSpacing: '-0.025em',
+      },
+      heading: {
+        fontSize: '1.5rem',
+        lineHeight: '1.3',
+        fontWeight: '600',
+        letterSpacing: '-0.015em',
+      },
+      subheading: {
+        fontSize: '1.125rem',
+        lineHeight: '1.4',
+        fontWeight: '500',
+      },
+      body: {
+        fontSize: '1rem',
+        lineHeight: '1.6',
+        fontWeight: '400',
+      },
+      caption: {
+        fontSize: '0.875rem',
+        lineHeight: '1.4',
+        fontWeight: '400',
+      },
+      label: {
+        fontSize: '0.875rem',
+        lineHeight: '1.2',
+        fontWeight: '500',
+        letterSpacing: '0.025em',
+        textTransform: 'uppercase',
+      },
     },
   },
   

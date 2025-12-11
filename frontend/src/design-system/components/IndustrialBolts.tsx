@@ -280,7 +280,7 @@ export const TorxHeadBolt: React.FC<BoltProps> = ({
 };
 
 /**
- * Hex Head Bolt - Industrial hex socket
+ * Hex Head Bolt - Industrial hex socket (Improved for neumorphic integration)
  */
 export const HexHeadBolt: React.FC<BoltProps> = ({ 
   className = '', 
@@ -296,56 +296,79 @@ export const HexHeadBolt: React.FC<BoltProps> = ({
         style={{ display: 'block' }}
       >
         <defs>
-          <radialGradient id="hexGradient" cx="0.3" cy="0.3" r="0.8">
-            <stop offset="0%" stopColor="#c8d4e1" />
-            <stop offset="40%" stopColor="#a8b5c7" />
-            <stop offset="70%" stopColor="#8e9aaf" />
-            <stop offset="100%" stopColor="#6c7b7f" />
+          {/* More subtle metallic gradient that matches neumorphic design */}
+          <radialGradient id="hexGradient" cx="0.35" cy="0.35" r="0.7">
+            <stop offset="0%" stopColor="#f0f4f8" />
+            <stop offset="30%" stopColor="#e0e5ec" />
+            <stop offset="60%" stopColor="#d1d9e6" />
+            <stop offset="100%" stopColor="#b8c5d1" />
           </radialGradient>
           
-          <linearGradient id="hexSocketGradient" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="rgba(0,0,0,0.8)" />
-            <stop offset="100%" stopColor="rgba(0,0,0,0.5)" />
-          </linearGradient>
+          {/* Deeper hex socket gradient */}
+          <radialGradient id="hexSocketGradient" cx="0.5" cy="0.5" r="0.6">
+            <stop offset="0%" stopColor="rgba(0,0,0,0.4)" />
+            <stop offset="50%" stopColor="rgba(0,0,0,0.6)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.8)" />
+          </radialGradient>
+          
+          {/* Subtle rim shadow */}
+          <radialGradient id="rimShadow" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="85%" stopColor="transparent" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.2)" />
+          </radialGradient>
         </defs>
         
-        {/* Drop shadow */}
-        <circle cx="12.5" cy="12.5" r="10" fill="rgba(0,0,0,0.2)" opacity="0.3" />
+        {/* Main bolt body - matches card surface */}
+        <circle 
+          cx="12" 
+          cy="12" 
+          r="11" 
+          fill="url(#hexGradient)"
+          stroke="rgba(163, 177, 198, 0.3)"
+          strokeWidth="0.5"
+        />
         
-        {/* Main bolt body */}
+        {/* Subtle rim shadow for depth */}
+        <circle 
+          cx="12" 
+          cy="12" 
+          r="10.5" 
+          fill="url(#rimShadow)"
+        />
+        
+        {/* Top highlight for neumorphic effect */}
         <circle 
           cx="12" 
           cy="12" 
           r="10" 
-          fill="url(#hexGradient)"
-          stroke="#5a6b70"
-          strokeWidth="0.5"
-        />
-        
-        {/* Rim highlight */}
-        <circle 
-          cx="12" 
-          cy="12" 
-          r="9.5" 
           fill="none"
-          stroke="rgba(255,255,255,0.2)"
-          strokeWidth="0.5"
+          stroke="rgba(255,255,255,0.4)"
+          strokeWidth="0.8"
+          strokeDasharray="0 6.28"
+          strokeDashoffset="1.57"
+          transform="rotate(-45 12 12)"
         />
         
-        {/* Hexagonal socket */}
+        {/* Hexagonal socket - more realistic depth */}
+        <polygon 
+          points="12,7.5 15.5,9.25 15.5,14.75 12,16.5 8.5,14.75 8.5,9.25" 
+          fill="url(#hexSocketGradient)"
+          stroke="rgba(0,0,0,0.3)"
+          strokeWidth="0.2"
+        />
+        
+        {/* Hex socket beveled edges */}
         <polygon 
           points="12,8 15,9.5 15,14.5 12,16 9,14.5 9,9.5" 
-          fill="url(#hexSocketGradient)"
-          stroke="rgba(0,0,0,0.4)"
+          fill="none"
+          stroke="rgba(0,0,0,0.5)"
           strokeWidth="0.3"
         />
         
-        {/* Hex socket inner highlight */}
+        {/* Inner hex detail for realism */}
         <polygon 
-          points="12,8.5 14.5,10 14.5,14 12,15.5 9.5,14 9.5,10" 
-          fill="none"
-          stroke="rgba(0,0,0,0.6)"
-          strokeWidth="0.2"
+          points="12,8.8 14.2,10 14.2,14 12,15.2 9.8,14 9.8,10" 
+          fill="rgba(0,0,0,0.2)"
         />
       </svg>
     </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { BrandProvider, useBrandContext } from './context';
 import { Header, Vault } from './components/layout';
 import { Workbench, Onboarding } from './views';
-import { IndustrialDemo } from './design-system/demo';
+import { PolishedIndustrialDemo } from './design-system/PolishedDemo';
 
 type View = 'workbench' | 'onboard' | 'demo';
 
@@ -30,7 +30,7 @@ const AppContent: React.FC = () => {
             Onboarding
           </button>
         </div>
-        <IndustrialDemo />
+        <PolishedIndustrialDemo />
       </div>
     );
   }

@@ -91,9 +91,9 @@ function extractShadowMetrics(shadowCSS: string): ShadowMetrics {
     const values = cleanPart.split(/\s+/);
     
     if (values.length >= 4) {
-      const xOffset = parseInt(values[0]);
-      const yOffset = parseInt(values[1]);
-      const blurRadius = parseInt(values[2]);
+      const xOffset = parseFloat(values[0]);
+      const yOffset = parseFloat(values[1]);
+      const blurRadius = parseFloat(values[2]);
       
       // Identify dark vs light shadow by color
       if (part.includes('#babecc')) {
@@ -115,8 +115,8 @@ function validateProportionalScaling(
   normal: ShadowMetrics, 
   deep: ShadowMetrics
 ): boolean {
-  // Expected scaling ratios based on design tokens (0.5, 1.0, 1.5)
-  const expectedSubtleRatio = 0.5;
+  // Expected scaling ratios based on design tokens (0.7, 1.0, 1.5)
+  const expectedSubtleRatio = 0.7;
   const expectedDeepRatio = 1.5;
   
   // Check dark shadow scaling

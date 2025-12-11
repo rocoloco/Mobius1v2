@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Image as ImageIcon } from 'lucide-react';
-import { RecessedScreen, StatusBadge, HardwareScrew } from '../components/physical';
-import { DataPlate, AuditReceipt, CockpitInput } from '../components/persona';
+// Removed ImageIcon import - using technical standby state instead
+import { MigratedRecessedScreen as RecessedScreen, MigratedStatusBadge as StatusBadge, HardwareScrew } from '../components/physical';
+import { MigratedDataPlate as DataPlate, AuditReceipt, MigratedCockpitInput as CockpitInput } from '../components/persona';
+import { GenerationHistory } from '../components/persona/GenerationHistory';
+import { LayoutDebugger } from '../utils/LayoutDebugger';
+import { MeasurementTool } from '../utils/MeasurementTool';
 import { useGeneration } from '../api/hooks';
 import type { Brand, Violation } from '../types';
 
@@ -86,14 +89,33 @@ export const Workbench: React.FC<WorkbenchProps> = ({ activeBrand }) => {
   }
 
   return (
-    <main className="flex-1 flex flex-col items-center justify-center p-6 pb-32 relative">
-      {/* BRAND GUARDIAN: The Data Plate (Top Left) */}
+    <main className="flex-1 flex flex-col p-6 relative surface-texture">
+      {/* BRAND GUARDIAN: The Data Plate (Top Left) - Identity Core Module */}
       <DataPlate brand={activeBrand} />
 
-      {/* The Machine Housing */}
-      <div className="w-full max-w-4xl aspect-video bg-surface rounded-[2rem] shadow-soft p-3 relative group transition-all duration-500 z-10">
-        {/* The Deep Screen */}
-        <RecessedScreen className="w-full h-full flex items-center justify-center">
+      {/* GENERATION MEMORY: The History Panel (Top Right) - Recent Generations */}
+      {/* Position: starts at center + half viewport width (448px) + gap (32px) */}
+      <div
+        className="hidden xl:block absolute top-24 z-0 w-56"
+        style={{ left: 'calc(50% + 448px + 32px)' }}
+      >
+        <GenerationHistory />
+      </div>
+
+      {/* Main Content Area - Centered horizontally but flows vertically */}
+      <div className="flex-1 flex flex-col items-center justify-center">
+        {/* The Machine Housing - Main Viewport Module */}
+        <div className="w-full max-w-4xl aspect-video relative group transition-all duration-500 z-10">
+        
+        {/* Cooling Vents - Bottom Edge */}
+        <div className="absolute bottom-1 left-8 right-8 h-2 cooling-vents rounded-sm opacity-60"></div>
+        {/* The Deep Screen - Industrial Viewport */}
+        <RecessedScreen 
+          className="w-full h-full flex items-center justify-center" 
+          showTechnicalGrid={true}
+          gridColor="#3b82f6"
+          glassEffect={true}
+        >
           {isGenerating ? (
             <GeneratingState status={currentJob?.status} progress={currentJob?.progress || 0} />
           ) : (
@@ -105,11 +127,16 @@ export const Workbench: React.FC<WorkbenchProps> = ({ activeBrand }) => {
           )}
         </RecessedScreen>
 
-        {/* Hardware Screws */}
-        <HardwareScrew className="absolute top-5 left-5" />
-        <HardwareScrew className="absolute top-5 right-5" />
-        <HardwareScrew className="absolute bottom-5 left-5" />
-        <HardwareScrew className="absolute bottom-5 right-5" />
+        </div>
+
+        {/* OPERATOR: The Cockpit Control Deck - Positioned below the viewport */}
+        <div className="mt-12 w-full max-w-4xl flex justify-center">
+          <CockpitInput
+            onGenerate={handleGenerate}
+            isGenerating={isGenerating}
+            initialValue="LinkedIn post for Q3 earnings"
+          />
+        </div>
       </div>
 
       {/* OPERATOR: The Audit Receipt (Slides up) */}
@@ -122,12 +149,9 @@ export const Workbench: React.FC<WorkbenchProps> = ({ activeBrand }) => {
         />
       )}
 
-      {/* OPERATOR: The Cockpit Control Deck */}
-      <CockpitInput
-        onGenerate={handleGenerate}
-        isGenerating={isGenerating}
-        initialValue="LinkedIn post for Q3 earnings"
-      />
+      {/* Debug Tools - Press 'D' for layout guides, 'M' for measurements */}
+      <LayoutDebugger />
+      <MeasurementTool />
     </main>
   );
 };
@@ -185,11 +209,30 @@ const PreviewState: React.FC<PreviewStateProps> = ({
         className="max-w-full max-h-full object-contain rounded-lg"
       />
     ) : (
-      <div className="text-center opacity-30 flex flex-col items-center gap-4">
-        <ImageIcon size={48} />
-        <span className="font-black text-3xl tracking-tight text-ink">
-          PREVIEW
-        </span>
+      <div className="text-center opacity-40 flex flex-col items-center gap-6 system-standby">
+        <div className="text-2xl font-bold tracking-wider text-blue-600/60 standby-indicator">
+          SYSTEM READY
+        </div>
+        <div className="w-16 h-px bg-blue-600/30"></div>
+        <div className="text-lg tracking-widest text-gray-500">
+          AWAITING INPUT
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          {[...Array(9)].map((_, i) => (
+            <div 
+              key={i} 
+              className="w-2 h-2 border border-blue-600/20 bg-blue-600/5 standby-indicator"
+              style={{ animationDelay: `${i * 0.1}s` }}
+            />
+          ))}
+        </div>
+        
+        {/* Technical Readout */}
+        <div className="mt-6 text-xs text-gray-400 tracking-widest opacity-60">
+          <div>VIEWPORT: ACTIVE</div>
+          <div>GRID: ENABLED</div>
+          <div>STATUS: STANDBY</div>
+        </div>
       </div>
     )}
 

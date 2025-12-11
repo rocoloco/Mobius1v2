@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { industrialTokens } from '../tokens';
+import { industrialTokens, NeumorphicUtils } from '../index';
 
 /**
  * Industrial Indicator component interface
@@ -17,6 +17,7 @@ export interface IndustrialIndicatorProps {
   pulse?: boolean;
   label?: string;
   shape?: 'circle' | 'square' | 'diamond';
+  diffused?: boolean; // New prop for sub-surface scattering effect
   className?: string;
   style?: React.CSSProperties;
   onClick?: () => void;
@@ -33,6 +34,7 @@ export const IndustrialIndicator: React.FC<IndustrialIndicatorProps> = ({
   pulse = false,
   label,
   shape = 'circle',
+  diffused = true, // Default to diffused for premium soft plastic look
   className = '',
   style,
   onClick,
@@ -60,37 +62,17 @@ export const IndustrialIndicator: React.FC<IndustrialIndicatorProps> = ({
     diamond: 'rotate-45 rounded-sm',
   };
 
-  // Status color mapping following industrial standards
-  const getStatusColor = () => {
-    switch (status) {
-      case 'off': return industrialTokens.colors.led.off;
-      case 'on': return industrialTokens.colors.led.on;
-      case 'success': return industrialTokens.colors.led.on; // Green for success
-      case 'error': return industrialTokens.colors.led.error; // Red for error
-      case 'warning': return industrialTokens.colors.led.warning; // Amber for warning
-      default: return industrialTokens.colors.led.off;
-    }
-  };
+  // Status color mapping is now handled by NeumorphicUtils.getDiffusedLEDStyle
 
-  // Generate LED glow styles
+  // Generate LED glow styles with optional diffused effect
   const getLEDStyles = (): React.CSSProperties => {
-    const color = getStatusColor();
     const isActive = status !== 'off';
     const glowIntensity = glow && isActive ? 1 : 0;
     
-    const baseStyles: React.CSSProperties = {
-      backgroundColor: color,
-      transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
-    };
-
-    // Add glow effect for active states
-    if (glowIntensity > 0) {
-      baseStyles.boxShadow = `
-        0 0 ${8 * glowIntensity}px ${color}, 
-        0 0 ${16 * glowIntensity}px ${color}, 
-        0 0 ${24 * glowIntensity}px ${color}
-      `;
-    }
+    // Use diffused LED styling for soft plastic effect
+    const baseStyles = diffused 
+      ? NeumorphicUtils.getDiffusedLEDStyle(status as 'off' | 'on' | 'error' | 'warning', glowIntensity)
+      : NeumorphicUtils.getLEDGlowStyle(status as 'off' | 'on' | 'error' | 'warning', glowIntensity);
 
     // Add pulse animation if enabled
     if (pulse && isActive) {
@@ -185,6 +167,7 @@ export interface IndustrialIndicatorGroupProps {
   size?: IndustrialIndicatorProps['size'];
   glow?: boolean;
   pulse?: boolean;
+  diffused?: boolean; // New prop for group-wide diffused effect
   orientation?: 'horizontal' | 'vertical';
   className?: string;
 }
@@ -194,6 +177,7 @@ export const IndustrialIndicatorGroup: React.FC<IndustrialIndicatorGroupProps> =
   size = 'md',
   glow = true,
   pulse = false,
+  diffused = true, // Default to diffused for premium soft plastic look
   orientation = 'horizontal',
   className = '',
 }) => {
@@ -211,6 +195,7 @@ export const IndustrialIndicatorGroup: React.FC<IndustrialIndicatorGroupProps> =
           size={size}
           glow={glow}
           pulse={pulse}
+          diffused={diffused}
           label={indicator.label}
           onClick={indicator.onClick}
         />

@@ -61,6 +61,8 @@ export {
   SerialPlate
 } from './IndustrialManufacturing';
 
+
+
 // Import components for the collection
 import { IndustrialCard } from './IndustrialCard';
 import { IndustrialButton } from './IndustrialButton';
@@ -74,12 +76,15 @@ import { VentGrille, ConnectorPort, SurfaceTexture, WarningLabel, SerialPlate } 
  * Component collection for easy access
  */
 export const IndustrialComponents = {
+  // Basic Components
   Card: IndustrialCard,
   Button: IndustrialButton,
   EnhancedButton: EnhancedIndustrialButton,
   Input: IndustrialInput,
   Indicator: IndustrialIndicator,
   IndicatorGroup: IndustrialIndicatorGroup,
+  
+  // Hardware Components
   PhillipsHeadBolt,
   FlatheadBolt,
   TorxHeadBolt,

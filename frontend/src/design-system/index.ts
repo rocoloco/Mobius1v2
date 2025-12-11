@@ -47,6 +47,26 @@ export {
   type IndustrialIndicatorGroupProps,
 } from './components';
 
+
+
+// Polished Components (Radix UI based)
+export { PolishedIndustrialButton } from './components/PolishedIndustrialButton';
+export { PolishedIndustrialCard } from './components/PolishedIndustrialCard';
+export { PolishedIndustrialInput } from './components/PolishedIndustrialInput';
+export {
+  PolishedIndustrialTabs,
+  PolishedIndustrialTabsList,
+  PolishedIndustrialTabsTrigger,
+  PolishedIndustrialTabsContent,
+} from './components/PolishedIndustrialTabs';
+export type { PolishedIndustrialButtonProps } from './components/PolishedIndustrialButton';
+export type { PolishedIndustrialCardProps } from './components/PolishedIndustrialCard';
+export type { PolishedIndustrialInputProps } from './components/PolishedIndustrialInput';
+
+// Demos
+export { IndustrialDemo } from './demo';
+export { PolishedIndustrialDemo } from './PolishedDemo';
+
 /**
  * Design System Version
  */

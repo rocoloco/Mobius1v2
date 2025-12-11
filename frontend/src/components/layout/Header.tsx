@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Command, ChevronDown, Plus, LayoutGrid, Settings } from 'lucide-react';
-import { PhysicalButton } from '../physical';
+import { Command, ChevronDown, Plus, LayoutGrid } from 'lucide-react';
+import { MigratedPhysicalButton as PhysicalButton, IndustrialUserAvatar } from '../physical';
 import type { Brand } from '../../types';
 
 interface HeaderProps {
@@ -23,7 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <header className="h-16 px-6 flex items-center justify-between z-20 shrink-0 bg-background/80 backdrop-blur-md border-b border-white/20">
+    <header className="h-16 px-6 flex items-center justify-between z-20 shrink-0 bg-background/80 backdrop-blur-md">
       {/* LEFT: The Cartridge Slot */}
       <div className="relative">
         <button
@@ -127,18 +127,17 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">VAULT</span>
         </PhysicalButton>
 
-        <PhysicalButton variant="icon" className="!w-9 !h-9">
-          <Settings size={16} />
-        </PhysicalButton>
-
-        {/* User Avatar */}
-        <div className="w-9 h-9 rounded-full bg-surface flex items-center justify-center overflow-hidden border-2 border-surface shadow-soft">
-          <img
-            src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"
-            alt="User"
-            className="w-full h-full"
-          />
-        </div>
+        {/* User Avatar - handles both profile and settings */}
+        <IndustrialUserAvatar 
+          size="md" 
+          role="operator"
+          status="online"
+          className="hover:scale-105 transition-transform duration-200"
+          onClick={() => {
+            // TODO: Open user menu with profile AND settings options
+            console.log('User menu clicked - will show profile, settings, logout, etc.');
+          }}
+        />
       </div>
     </header>
   );

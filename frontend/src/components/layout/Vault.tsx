@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Download, Copy } from 'lucide-react';
-import { StatusBadge } from '../physical';
+import { MigratedStatusBadge as StatusBadge } from '../physical';
 import type { Asset } from '../../types';
 
 interface VaultProps {

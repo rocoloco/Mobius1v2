@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Upload, Globe, FileText, ArrowRight, X, CheckCircle2 } from 'lucide-react';
-import { PhysicalButton, RecessedScreen } from '../components/physical';
+import { MigratedPhysicalButton as PhysicalButton, MigratedRecessedScreen as RecessedScreen } from '../components/physical';
 
 interface OnboardingProps {
   onComplete: (brandId: string) => void;
