@@ -10,7 +10,7 @@ const AppContent: React.FC = () => {
   const { brands, activeBrand, assets, setActiveBrandId, addBrand } = useBrandContext();
 
   const [isVaultOpen, setIsVaultOpen] = useState(false);
-  const [view, setView] = useState<View>('demo'); // Start with demo to show new components
+  const [view, setView] = useState<View>('workbench'); // Start with main workbench
 
   // Show demo view
   if (view === 'demo') {

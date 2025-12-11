@@ -1,8 +1,9 @@
 """
-Generation workflow with enhanced compliance scoring.
+Generation workflow with enhanced compliance scoring and real-time WebSocket updates.
 
 This module defines the LangGraph workflow for asset generation with
-automatic compliance auditing and correction loops.
+automatic compliance auditing and correction loops, enhanced with
+real-time WebSocket broadcasting for monitoring interfaces.
 """
 
 from typing import Literal, Optional
@@ -22,8 +23,44 @@ from datetime import timezone
 
 logger = structlog.get_logger()
 
+# WebSocket broadcasting functions
+async def broadcast_workflow_event(job_id: str, event_type: str, data: dict):
+    """
+    Broadcast workflow events to WebSocket connections.
+    
+    Args:
+        job_id: Job ID to broadcast to
+        event_type: Type of event (status_change, compliance_score, etc.)
+        data: Event data to broadcast
+    """
+    try:
+        from mobius.api.websocket_handlers import (
+            broadcast_status_change,
+            broadcast_compliance_scores,
+            broadcast_reasoning_log,
+            get_job_connection_count
+        )
+        
+        # Only broadcast if there are active connections
+        if get_job_connection_count(job_id) > 0:
+            if event_type == "status_change":
+                await broadcast_status_change(
+                    job_id=job_id,
+                    status=data.get("status", "unknown"),
+                    progress=data.get("progress", 0),
+                    current_step=data.get("current_step", "Processing")
+                )
+            elif event_type == "compliance_score":
+                await broadcast_compliance_scores(job_id, data)
+            elif event_type == "reasoning_log":
+                await broadcast_reasoning_log(job_id, data)
+                
+    except Exception as e:
+        # Don't fail workflow if WebSocket broadcasting fails
+        logger.warning("websocket_broadcast_failed", job_id=job_id, error=str(e))
 
-def needs_review_node(state: JobState) -> dict:
+
+async def needs_review_node(state: JobState) -> dict:
     """
     Terminal node that pauses workflow for user review.
 
@@ -36,11 +73,28 @@ def needs_review_node(state: JobState) -> dict:
     Returns:
         Updated state dict with needs_review flag set
     """
+    job_id = state.get("job_id")
+    current_score = state.get("compliance_scores", [])[-1].get("overall_score") if state.get("compliance_scores") else None
+    
     logger.info(
         "needs_review_node",
-        job_id=state.get("job_id"),
-        current_score=state.get("compliance_scores", [])[-1].get("overall_score") if state.get("compliance_scores") else None
+        job_id=job_id,
+        current_score=current_score
     )
+
+    # Broadcast status change to WebSocket connections
+    await broadcast_workflow_event(job_id, "status_change", {
+        "status": "needs_review",
+        "progress": 75,  # Partial progress, waiting for review
+        "current_step": f"Review Required - Compliance Score: {current_score}%"
+    })
+
+    # Broadcast reasoning log
+    await broadcast_workflow_event(job_id, "reasoning_log", {
+        "step": "Review Required",
+        "message": f"Asset generated with {current_score}% compliance. Manual review required.",
+        "level": "warning"
+    })
 
     return {
         "status": "needs_review",
@@ -49,7 +103,7 @@ def needs_review_node(state: JobState) -> dict:
     }
 
 
-def complete_node(state: JobState) -> dict:
+async def complete_node(state: JobState) -> dict:
     """
     Terminal node for successful completion.
 
@@ -90,13 +144,27 @@ def complete_node(state: JobState) -> dict:
         approval_override=state.get("approval_override", False)
     )
 
+    # Broadcast completion status to WebSocket connections
+    await broadcast_workflow_event(job_id, "status_change", {
+        "status": "completed",
+        "progress": 100,
+        "current_step": "Asset generation completed successfully"
+    })
+
+    # Broadcast final reasoning log
+    await broadcast_workflow_event(job_id, "reasoning_log", {
+        "step": "Completion",
+        "message": "Asset generation workflow completed successfully.",
+        "level": "success"
+    })
+
     return {
         "status": "completed",
         "session_id": None
     }
 
 
-def failed_node(state: JobState) -> dict:
+async def failed_node(state: JobState) -> dict:
     """
     Terminal node for failed jobs.
 
@@ -112,6 +180,7 @@ def failed_node(state: JobState) -> dict:
 
     job_id = state.get("job_id")
     session_id = state.get("session_id")
+    attempt_count = state.get("attempt_count", 0)
 
     # Clean up session if exists
     if session_id:
@@ -134,8 +203,22 @@ def failed_node(state: JobState) -> dict:
     logger.info(
         "job_failed",
         job_id=job_id,
-        attempt_count=state.get("attempt_count", 0)
+        attempt_count=attempt_count
     )
+
+    # Broadcast failure status to WebSocket connections
+    await broadcast_workflow_event(job_id, "status_change", {
+        "status": "failed",
+        "progress": 0,
+        "current_step": f"Generation failed after {attempt_count} attempts"
+    })
+
+    # Broadcast failure reasoning log
+    await broadcast_workflow_event(job_id, "reasoning_log", {
+        "step": "Failure",
+        "message": f"Asset generation failed after {attempt_count} attempts. Maximum retry limit reached.",
+        "level": "error"
+    })
 
     return {
         "status": "failed",
@@ -234,17 +317,18 @@ def create_generation_workflow():
     - Loads the Compressed Digital Twin from brand storage
     - Uses the Vision Model (gemini-3-pro-image-preview) for generation
     - Returns image_uri for downstream processing
+    - Broadcasts real-time updates via WebSocket
     
     Returns:
         Compiled LangGraph workflow
         
-    Requirements: 3.1, 7.2
+    Requirements: 3.1, 7.2, 5.1, 5.2, 5.3, 5.4, 5.5
     """
     logger.info("creating_generation_workflow")
     
     workflow = StateGraph(JobState)
 
-    # Add nodes
+    # Add nodes (some are now async for WebSocket broadcasting)
     workflow.add_node("generate", generate_node)
     workflow.add_node("audit", audit_node)
     workflow.add_node("correct", correct_node)
@@ -350,6 +434,19 @@ async def run_generation_workflow(
     }
     
     try:
+        # Broadcast workflow start
+        await broadcast_workflow_event(job_id, "status_change", {
+            "status": "processing",
+            "progress": 0,
+            "current_step": "Initializing generation workflow"
+        })
+
+        await broadcast_workflow_event(job_id, "reasoning_log", {
+            "step": "Initialization",
+            "message": f"Starting asset generation for brand {brand_id}",
+            "level": "info"
+        })
+
         # Create and run workflow
         workflow = create_generation_workflow()
         final_state = await workflow.ainvoke(initial_state)

@@ -4,6 +4,8 @@ Audit Node Module
 This module implements the audit node for the generation workflow.
 It acts as the "Compliance Officer," using Gemini to strictly evaluate 
 generated assets against brand guidelines and specific hex codes.
+
+Enhanced with real-time WebSocket broadcasting for monitoring interfaces.
 """
 
 from typing import Dict, Any, List
@@ -19,6 +21,41 @@ from mobius.storage.brands import BrandStorage
 from mobius.constants import CATEGORY_WEIGHTS
 
 logger = structlog.get_logger()
+
+async def broadcast_websocket_event(job_id: str, event_type: str, data: dict):
+    """
+    Broadcast workflow events to WebSocket connections.
+    
+    Args:
+        job_id: Job ID to broadcast to
+        event_type: Type of event (status_change, compliance_score, reasoning_log, etc.)
+        data: Event data to broadcast
+    """
+    try:
+        from mobius.api.websocket_handlers import (
+            broadcast_status_change,
+            broadcast_compliance_scores,
+            broadcast_reasoning_log,
+            get_job_connection_count
+        )
+        
+        # Only broadcast if there are active connections
+        if get_job_connection_count(job_id) > 0:
+            if event_type == "status_change":
+                await broadcast_status_change(
+                    job_id=job_id,
+                    status=data.get("status", "unknown"),
+                    progress=data.get("progress", 0),
+                    current_step=data.get("current_step", "Processing")
+                )
+            elif event_type == "compliance_score":
+                await broadcast_compliance_scores(job_id, data)
+            elif event_type == "reasoning_log":
+                await broadcast_reasoning_log(job_id, data)
+                
+    except Exception as e:
+        # Don't fail workflow if WebSocket broadcasting fails
+        logger.warning("websocket_broadcast_failed", job_id=job_id, error=str(e))
 
 
 def calculate_overall_score(categories: List[CategoryScore]) -> float:
@@ -58,17 +95,32 @@ async def audit_node(state: JobState) -> Dict[str, Any]:
     - Uses the Reasoning Model explicitly for superior reasoning capabilities
     - Accepts image_uri for multimodal input (no download needed in this node)
     - Uses full BrandGuidelines for comprehensive compliance checking
+    - Broadcasts real-time compliance scores via WebSocket
     
-    Requirements: 4.1, 4.2, 4.3, 4.4
+    Requirements: 4.1, 4.2, 4.3, 4.4, 5.2, 5.3
     """
     operation_type = "audit_node"
     start_time = time.time()
+    job_id = state.get("job_id")
     
     logger.info(
         "audit_node_start",
-        job_id=state.get("job_id"),
+        job_id=job_id,
         operation_type=operation_type
     )
+
+    # Broadcast audit start
+    await broadcast_websocket_event(job_id, "status_change", {
+        "status": "auditing",
+        "progress": 75,
+        "current_step": "Auditing image for brand compliance"
+    })
+
+    await broadcast_websocket_event(job_id, "reasoning_log", {
+        "step": "Audit",
+        "message": "Starting compliance audit with Reasoning Model",
+        "level": "info"
+    })
     
     try:
         # 1. Get image_uri from state (passed from generation node)
@@ -105,12 +157,28 @@ async def audit_node(state: JobState) -> Dict[str, Any]:
         
         logger.info(
             "audit_complete", 
-            job_id=state.get("job_id"), 
+            job_id=job_id, 
             score=compliance.overall_score, 
             approved=compliance.approved,
             operation_type=operation_type,
             latency_ms=latency_ms
         )
+
+        # Broadcast compliance scores to WebSocket connections
+        await broadcast_websocket_event(job_id, "compliance_score", compliance.model_dump())
+
+        # Broadcast audit completion
+        await broadcast_websocket_event(job_id, "status_change", {
+            "status": "audited",
+            "progress": 90,
+            "current_step": f"Audit complete - Score: {compliance.overall_score}%"
+        })
+
+        await broadcast_websocket_event(job_id, "reasoning_log", {
+            "step": "Audit Complete",
+            "message": f"Compliance audit completed with score: {compliance.overall_score}% (approved: {compliance.approved})",
+            "level": "success" if compliance.approved else "warning"
+        })
 
         return {
             "audit_history": state.get("audit_history", []) + [compliance.model_dump()],

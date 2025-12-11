@@ -27,6 +27,7 @@ import {
   TorxHeadBolt, 
   HexHeadBolt 
 } from './components/IndustrialBolts';
+import TerminalTeleprinterDemo from '../components/monitoring/TerminalTeleprinterDemo';
 
 // Tab configuration
 const tabs = [
@@ -34,6 +35,7 @@ const tabs = [
   { id: 'buttons', label: 'Buttons', icon: '🔘', description: 'Interactive buttons and controls' },
   { id: 'cards', label: 'Cards', icon: '📋', description: 'Information cards and panels' },
   { id: 'forms', label: 'Forms', icon: '📝', description: 'Input fields and form elements' },
+  { id: 'monitoring', label: 'Monitoring', icon: '📊', description: 'Real-time monitoring components' },
   { id: 'components', label: 'Components', icon: '🔧', description: 'Advanced component showcase' }
 ];
 
@@ -946,6 +948,34 @@ export const PolishedIndustrialDemo: React.FC = () => {
                         >
                           Load Template
                         </PolishedIndustrialButton>
+                      </div>
+                    </div>
+                  </PolishedIndustrialCard>
+                </div>
+              </PolishedIndustrialTabsContent>
+
+              {/* Monitoring Tab */}
+              <PolishedIndustrialTabsContent value="monitoring">
+                <div className="space-y-8">
+                  <div className="text-center">
+                    <h2 className="text-3xl font-semibold mb-4" style={{ color: industrialTokens.colors.text.primary }}>
+                      Real-time Monitoring Components
+                    </h2>
+                    <p className="text-lg" style={{ color: industrialTokens.colors.text.secondary }}>
+                      Advanced monitoring interfaces for brand compliance and system oversight
+                    </p>
+                  </div>
+
+                  {/* Terminal Teleprinter Demo */}
+                  <PolishedIndustrialCard title="Terminal Teleprinter" subtitle="Real-time Reasoning Logs" size="lg">
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-600">
+                        A CRT-style terminal component that displays real-time reasoning logs with typewriter animation, 
+                        audio feedback, and visual flash effects for different log levels. Perfect for monitoring 
+                        brand compliance audits and system processes.
+                      </p>
+                      <div className="border rounded-lg overflow-hidden">
+                        <TerminalTeleprinterDemo />
                       </div>
                     </div>
                   </PolishedIndustrialCard>

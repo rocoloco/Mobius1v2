@@ -266,7 +266,7 @@ def fastapi_app():
     import sys
     sys.path.insert(0, "/root")
     
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI, Request, WebSocket
     from fastapi.responses import JSONResponse
     from fastapi.middleware.cors import CORSMiddleware
     
@@ -1224,6 +1224,14 @@ def fastapi_app():
                     }
                 }
             )
+
+    # WebSocket Routes for Real-Time Monitoring
+
+    @web_app.websocket("/ws/monitoring/{job_id}")
+    async def websocket_monitoring(websocket: WebSocket, job_id: str):
+        """WebSocket endpoint for real-time job monitoring."""
+        from mobius.api.websocket_handlers import websocket_monitoring_endpoint
+        await websocket_monitoring_endpoint(websocket, job_id)
 
     # Dashboard UI
 

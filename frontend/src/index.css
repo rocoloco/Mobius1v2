@@ -76,10 +76,16 @@ body {
   font-family: 'Space Grotesk', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #e0e5ec;
   color: #2d3436;
+  /* Rich gradient background with depth */
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(99, 179, 237, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(129, 140, 248, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(255, 255, 255, 0.4) 0%, transparent 70%),
+    linear-gradient(180deg, #e8ecf1 0%, #dde3eb 50%, #d4dbe5 100%);
+  background-attachment: fixed;
   /* Micro-texture pebble finish for premium soft plastic feel */
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3E%3C/svg%3E");
+  background-blend-mode: normal;
 }
 
 /* Selection styling */
@@ -322,33 +328,84 @@ input:focus, textarea:focus, select:focus {
   50% { opacity: 0.5; }
 }
 
-/* Glass viewport overlay - Enhanced visibility */
+/* Glass viewport overlay - Premium screen effect */
 .glass-viewport {
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.25) 0%,
-    rgba(255, 255, 255, 0.15) 20%,
-    rgba(255, 255, 255, 0.08) 40%,
-    transparent 70%
-  );
-  backdrop-filter: blur(1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  background:
+    /* Top-left highlight reflection */
+    linear-gradient(135deg,
+      rgba(255, 255, 255, 0.35) 0%,
+      rgba(255, 255, 255, 0.15) 15%,
+      rgba(255, 255, 255, 0.05) 30%,
+      transparent 50%
+    ),
+    /* Subtle vignette */
+    radial-gradient(ellipse at center,
+      transparent 40%,
+      rgba(0, 0, 0, 0.03) 100%
+    );
+  box-shadow:
+    /* Inner bevel - top/left light edge */
+    inset 1px 1px 0 rgba(255, 255, 255, 0.4),
+    /* Inner bevel - bottom/right shadow edge */
+    inset -1px -1px 0 rgba(0, 0, 0, 0.05),
+    /* Soft inner glow */
+    inset 0 0 60px rgba(59, 130, 246, 0.02);
   border-radius: inherit;
 }
 
-/* Additional glass reflection effect */
+/* Glass reflection streak - simulates overhead lighting */
 .glass-reflection {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 30%;
-  background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.05) 50%,
-    transparent 100%
-  );
+  bottom: 0;
+  background:
+    /* Main diagonal reflection streak */
+    linear-gradient(125deg,
+      transparent 0%,
+      transparent 35%,
+      rgba(255, 255, 255, 0.08) 36%,
+      rgba(255, 255, 255, 0.15) 38%,
+      rgba(255, 255, 255, 0.08) 40%,
+      transparent 41%,
+      transparent 100%
+    ),
+    /* Secondary subtle reflection */
+    linear-gradient(125deg,
+      transparent 0%,
+      transparent 55%,
+      rgba(255, 255, 255, 0.04) 56%,
+      rgba(255, 255, 255, 0.06) 57%,
+      rgba(255, 255, 255, 0.04) 58%,
+      transparent 59%,
+      transparent 100%
+    ),
+    /* Top edge highlight */
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0.04) 3%,
+      transparent 8%
+    );
   pointer-events: none;
   border-radius: inherit;
+}
+
+/* Glass screen bezel effect - adds depth around the glass */
+.glass-bezel {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    /* Top/left inner highlight - light catching the glass edge */
+    inset 0 3px 6px rgba(255, 255, 255, 0.4),
+    inset 3px 0 6px rgba(255, 255, 255, 0.2),
+    /* Bottom/right inner shadow - depth under glass */
+    inset 0 -3px 8px rgba(0, 0, 0, 0.08),
+    inset -3px 0 8px rgba(0, 0, 0, 0.04),
+    /* Subtle edge definition */
+    inset 0 0 1px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
 }
 
 /* Industrial standby state */
@@ -363,14 +420,107 @@ input:focus, textarea:focus, select:focus {
 }
 
 @keyframes standbyPulse {
-  0%, 100% { 
-    opacity: 0.3;
+  0%, 100% {
+    opacity: 0.4;
     transform: scale(1);
   }
-  50% { 
-    opacity: 0.7;
-    transform: scale(1.05);
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
   }
+}
+
+/* Enhanced breathing animation for standby elements */
+@keyframes breathe {
+  0%, 100% {
+    opacity: 0.5;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.2);
+  }
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor;
+  }
+}
+
+@keyframes reticlePulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Accent glow effects */
+.accent-glow {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.accent-glow-strong {
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.4), 0 0 30px rgba(59, 130, 246, 0.2);
+}
+
+/* Status indicator enhancements */
+.status-online {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6), 0 0 16px rgba(16, 185, 129, 0.3);
+  animation: glowPulse 2s ease-in-out infinite;
+}
+
+.status-warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6), 0 0 16px rgba(245, 158, 11, 0.3);
+  animation: glowPulse 1.5s ease-in-out infinite;
+}
+
+.status-error {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6), 0 0 16px rgba(239, 68, 68, 0.3);
+  animation: glowPulse 1s ease-in-out infinite;
+}
+
+/* Ambient lighting effect for cards */
+.ambient-light {
+  position: relative;
+}
+
+.ambient-light::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.4), transparent);
+  border-radius: 50%;
+}
+
+/* Enhanced surface with subtle blue tint */
+.surface-enhanced {
+  background: linear-gradient(135deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(241, 245, 249, 0.95) 50%,
+    rgba(226, 232, 240, 0.9) 100%
+  );
+  border: 1px solid rgba(59, 130, 246, 0.1);
 }
 
 /* Panel seams and joinery - Proper structural separation */

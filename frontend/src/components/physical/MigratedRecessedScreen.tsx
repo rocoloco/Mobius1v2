@@ -6,7 +6,6 @@
  */
 
 import React from 'react';
-import { PolishedIndustrialCard } from '../../design-system/components/PolishedIndustrialCard';
 
 interface MigratedRecessedScreenProps {
   children: React.ReactNode;
@@ -28,10 +27,22 @@ export const MigratedRecessedScreen: React.FC<MigratedRecessedScreenProps> = ({
       className={`relative ${className}`}
       data-testid="recessed-screen"
       style={{
-        borderRadius: '1rem', // Match original rounded-2xl
-        backgroundColor: '#dbe0e8', // Match original background
-        boxShadow: 'inset 4px 4px 8px rgba(163, 177, 198, 0.6), inset -4px -4px 8px rgba(255, 255, 255, 0.8)', // Recessed effect
-        padding: '2rem' // Increased padding to show corner hardware screws
+        borderRadius: '1.25rem',
+        background: 'linear-gradient(160deg, #cdd4de 0%, #d8dfe8 30%, #e0e6ef 70%, #e8ecf3 100%)',
+        boxShadow: `
+          /* Deep outer bevel - creates the "sunken into surface" look */
+          inset 8px 8px 20px rgba(140, 155, 175, 0.8),
+          inset -8px -8px 20px rgba(255, 255, 255, 0.95),
+          /* Secondary inner shadow for extra depth */
+          inset 3px 3px 8px rgba(120, 135, 155, 0.5),
+          inset -3px -3px 8px rgba(255, 255, 255, 0.7),
+          /* Soft blue ambient glow */
+          inset 0 0 40px rgba(59, 130, 246, 0.04),
+          /* Inner edge definition */
+          inset 0 1px 1px rgba(0, 0, 0, 0.05)
+        `,
+        padding: '2rem',
+        border: '1px solid rgba(100, 120, 140, 0.15)'
       }}
     >
       {/* Viewfinder Reticle Markings */}
@@ -85,11 +96,15 @@ export const MigratedRecessedScreen: React.FC<MigratedRecessedScreenProps> = ({
         </>
       )}
 
-      {/* Glass Cover Simulation - Enhanced */}
+      {/* Glass Cover Simulation - Premium screen effect */}
       {glassEffect && (
         <>
+          {/* Base glass layer with vignette */}
           <div className="absolute inset-0 pointer-events-none glass-viewport z-15" aria-hidden="true" />
-          <div className="absolute inset-0 pointer-events-none glass-reflection z-15" aria-hidden="true" />
+          {/* Diagonal reflection streaks */}
+          <div className="absolute inset-0 pointer-events-none glass-reflection z-16" aria-hidden="true" />
+          {/* Glass bezel depth effect */}
+          <div className="absolute inset-0 pointer-events-none glass-bezel z-17" aria-hidden="true" />
         </>
       )}
 

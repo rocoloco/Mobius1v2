@@ -67,3 +67,6 @@ export interface GenerationState {
   currentJob: Job | null;
   showAudit: boolean;
 }
+
+// Re-export monitoring types
+export * from './monitoring';

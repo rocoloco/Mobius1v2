@@ -50,18 +50,24 @@ export const MigratedCockpitInput: React.FC<MigratedCockpitInputProps> = ({
         size="sm"
         neumorphic={true}
         manufacturing={{
-          bolts: false, // Keep it clean for input
+          bolts: false,
           texture: 'smooth'
         }}
         className="backdrop-blur-xl"
         style={{
-          backgroundColor: 'rgba(224, 229, 236, 0.95)', // Semi-transparent surface
-          borderRadius: '1rem'
+          background: 'linear-gradient(135deg, rgba(240, 243, 247, 0.98) 0%, rgba(224, 229, 236, 0.95) 100%)',
+          borderRadius: '1rem',
+          border: '1px solid rgba(59, 130, 246, 0.12)',
+          boxShadow: `
+            0 4px 20px rgba(0, 0, 0, 0.08),
+            0 0 0 1px rgba(255, 255, 255, 0.8) inset,
+            0 0 40px rgba(59, 130, 246, 0.05)
+          `
         }}
       >
         <form onSubmit={handleSubmit} className="flex items-center gap-4">
-          {/* CPU Icon */}
-          <div className="text-gray-600 flex-shrink-0">
+          {/* CPU Icon with accent glow */}
+          <div className="text-blue-500/70 flex-shrink-0 transition-colors duration-300 group-hover:text-blue-600">
             <Cpu size={18} />
           </div>
 

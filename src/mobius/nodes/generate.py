@@ -4,6 +4,8 @@ Generation Node Module
 This module implements the generation node for the generation workflow.
 It uses the Vision Model to generate brand-compliant images with the
 Compressed Digital Twin injected into the system prompt.
+
+Enhanced with real-time WebSocket broadcasting for monitoring interfaces.
 """
 
 from typing import Dict, Any
@@ -17,6 +19,38 @@ from mobius.utils.media import LogoRasterizer
 
 logger = structlog.get_logger()
 
+async def broadcast_websocket_event(job_id: str, event_type: str, data: dict):
+    """
+    Broadcast workflow events to WebSocket connections.
+    
+    Args:
+        job_id: Job ID to broadcast to
+        event_type: Type of event (status_change, reasoning_log, etc.)
+        data: Event data to broadcast
+    """
+    try:
+        from mobius.api.websocket_handlers import (
+            broadcast_status_change,
+            broadcast_reasoning_log,
+            get_job_connection_count
+        )
+        
+        # Only broadcast if there are active connections
+        if get_job_connection_count(job_id) > 0:
+            if event_type == "status_change":
+                await broadcast_status_change(
+                    job_id=job_id,
+                    status=data.get("status", "unknown"),
+                    progress=data.get("progress", 0),
+                    current_step=data.get("current_step", "Processing")
+                )
+            elif event_type == "reasoning_log":
+                await broadcast_reasoning_log(job_id, data)
+                
+    except Exception as e:
+        # Don't fail workflow if WebSocket broadcasting fails
+        logger.warning("websocket_broadcast_failed", job_id=job_id, error=str(e))
+
 
 async def generate_node(state: JobState) -> Dict[str, Any]:
     """
@@ -26,6 +60,8 @@ async def generate_node(state: JobState) -> Dict[str, Any]:
     uses it to generate brand-compliant images via the Vision Model.
     The compressed twin is injected into the system prompt to ensure
     the generated image follows brand guidelines.
+    
+    Broadcasts real-time updates via WebSocket for monitoring interfaces.
     
     Args:
         state: Current job state containing brand_id, prompt, and generation params
@@ -44,10 +80,12 @@ async def generate_node(state: JobState) -> Dict[str, Any]:
     
     # Validate required fields
     brand_id = state.get("brand_id")
+    job_id = state.get("job_id")
+    
     if not brand_id:
         logger.error(
             "generate_node_missing_brand_id",
-            job_id=state.get("job_id"),
+            job_id=job_id,
             state_keys=list(state.keys()),
             operation_type=operation_type
         )
@@ -55,11 +93,24 @@ async def generate_node(state: JobState) -> Dict[str, Any]:
     
     logger.info(
         "generate_node_start",
-        job_id=state.get("job_id"),
+        job_id=job_id,
         brand_id=brand_id,
         attempt_count=state.get("attempt_count", 0),
         operation_type=operation_type
     )
+
+    # Broadcast generation start
+    await broadcast_websocket_event(job_id, "status_change", {
+        "status": "generating",
+        "progress": 25,
+        "current_step": f"Generating image (attempt {state.get('attempt_count', 0) + 1})"
+    })
+
+    await broadcast_websocket_event(job_id, "reasoning_log", {
+        "step": "Generation",
+        "message": f"Starting image generation for brand {brand_id}",
+        "level": "info"
+    })
     
     try:
         # Initialize clients
@@ -298,6 +349,13 @@ async def generate_node(state: JobState) -> Dict[str, Any]:
                 )
                 # Continue without previous image - will generate new one
 
+        # Broadcast generation progress
+        await broadcast_websocket_event(job_id, "reasoning_log", {
+            "step": "Vision Model",
+            "message": f"Calling Vision Model with optimized prompt and {len(logo_bytes_list)} logo(s)",
+            "level": "info"
+        })
+
         # Generate image with Vision Model (with logos if available)
         result = await gemini_client.generate_image(
             prompt=optimized_prompt,
@@ -356,6 +414,19 @@ async def generate_node(state: JobState) -> Dict[str, Any]:
             operation_type=operation_type,
             latency_ms=latency_ms
         )
+
+        # Broadcast generation completion
+        await broadcast_websocket_event(job_id, "status_change", {
+            "status": "generated",
+            "progress": 50,
+            "current_step": "Image generated successfully, proceeding to audit"
+        })
+
+        await broadcast_websocket_event(job_id, "reasoning_log", {
+            "step": "Generation Complete",
+            "message": f"Image generated successfully in {latency_ms}ms (attempt {current_attempt})",
+            "level": "success"
+        })
 
         # Return updated state with stored URL (CDN URL instead of base64)
         return {

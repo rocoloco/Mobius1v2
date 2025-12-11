@@ -66,49 +66,62 @@ export class NeumorphicUtils {
   }
 
   /**
-   * Generate LED glow effect styles
+   * Generate LED glow effect styles - Enhanced for visual impact
    */
   static getLEDGlowStyle(status: 'off' | 'on' | 'error' | 'warning', intensity: number = 1): React.CSSProperties {
     const color = tokenUtils.getLEDColor(status);
     const glowIntensity = status === 'off' ? 0 : intensity;
-    
-    return {
-      backgroundColor: color,
-      boxShadow: glowIntensity > 0 ? `0 0 ${10 * glowIntensity}px ${color}, 0 0 ${20 * glowIntensity}px ${color}, 0 0 ${30 * glowIntensity}px ${color}` : 'none',
-      transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
-    };
-  }
 
-  /**
-   * Generate diffused LED styles for sub-surface scattering effect
-   * Creates the appearance of LEDs buried under translucent plastic
-   */
-  static getDiffusedLEDStyle(status: 'off' | 'on' | 'error' | 'warning', intensity: number = 1): React.CSSProperties {
-    const color = tokenUtils.getLEDColor(status);
-    const glowIntensity = status === 'off' ? 0 : intensity;
-    
     if (glowIntensity === 0) {
       return {
-        backgroundColor: 'rgba(200, 200, 200, 0.3)', // Dim plastic appearance when off
-        border: '1px solid rgba(180, 180, 180, 0.4)',
-        filter: 'blur(0px)',
+        backgroundColor: 'rgba(150, 150, 150, 0.4)',
+        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.2)',
         transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
       };
     }
 
     return {
       backgroundColor: color,
-      // Multi-layer glow for sub-surface scattering
       boxShadow: `
-        inset 0 0 ${4 * glowIntensity}px rgba(255, 255, 255, 0.6),
-        0 0 ${8 * glowIntensity}px ${color},
-        0 0 ${16 * glowIntensity}px ${color},
-        0 0 ${24 * glowIntensity}px ${color}
+        inset 0 0 3px rgba(255, 255, 255, 0.8),
+        0 0 ${6 * glowIntensity}px ${color},
+        0 0 ${12 * glowIntensity}px ${color},
+        0 0 ${20 * glowIntensity}px ${color},
+        0 0 ${35 * glowIntensity}px ${color}
       `,
-      // Soft blur for diffused light through plastic
-      filter: `blur(${0.5 * glowIntensity}px)`,
+      transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
+    };
+  }
+
+  /**
+   * Generate diffused LED styles for sub-surface scattering effect
+   * Creates the appearance of LEDs buried under translucent plastic - Enhanced glow
+   */
+  static getDiffusedLEDStyle(status: 'off' | 'on' | 'error' | 'warning', intensity: number = 1): React.CSSProperties {
+    const color = tokenUtils.getLEDColor(status);
+    const glowIntensity = status === 'off' ? 0 : intensity;
+
+    if (glowIntensity === 0) {
+      return {
+        backgroundColor: 'rgba(180, 180, 180, 0.4)',
+        border: '1px solid rgba(160, 160, 160, 0.5)',
+        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.15)',
+        transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
+      };
+    }
+
+    return {
+      backgroundColor: color,
+      // Enhanced multi-layer glow for vibrant sub-surface scattering
+      boxShadow: `
+        inset 0 0 ${6 * glowIntensity}px rgba(255, 255, 255, 0.7),
+        0 0 ${4 * glowIntensity}px ${color},
+        0 0 ${10 * glowIntensity}px ${color},
+        0 0 ${18 * glowIntensity}px ${color},
+        0 0 ${28 * glowIntensity}px ${color}
+      `,
       // Subtle border for plastic housing
-      border: `1px solid rgba(255, 255, 255, ${0.2 * glowIntensity})`,
+      border: `1px solid rgba(255, 255, 255, ${0.3 * glowIntensity})`,
       transition: `all ${industrialTokens.animations.mechanical.duration.normal} ${industrialTokens.animations.mechanical.easing}`,
     };
   }
