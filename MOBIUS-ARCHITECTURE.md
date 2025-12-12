@@ -453,23 +453,44 @@ image = modal.Image.debian_slim() \
   - Template recommendations from similar brands
   - Data moat that compounds over time
 
-### Multi-Turn Tweaks
-- **Issue**: Tweaks regenerated from scratch instead of refining
-- **Fix**: Preserve session_id, pass previous_image_bytes to Gemini
+### Critical System Fixes
+
+#### Async Mode Implementation
+- **Issue**: Dashboard getting `ERR_CONNECTION_CLOSED` errors during 70-second generation process
+- **Root Cause**: Async mode was not implemented - ran synchronously despite `async_mode=true`
+- **Fix**: Implemented true async mode using `asyncio.create_task()` for background processing
+- **Result**: Immediate response with polling, no connection timeouts
+
+#### Review Threshold Correction
+- **Issue**: Jobs scoring 91-98% were auto-approved instead of triggering review
+- **Root Cause**: Gemini audit prompt used ≥80% threshold instead of ≥95%
+- **Fix**: Corrected audit prompt to match architecture: 95%+ auto-approve, 70-95% review
+- **Result**: Proper workflow routing aligned with documented architecture
+
+#### Neo4j Connection Stability
+- **Issue**: "Unable to retrieve routing information" errors during graph sync
+- **Root Cause**: Using `asyncio.create_task()` caused connection cleanup race conditions
+- **Fix**: Changed to `await` graph sync operations to ensure completion before cleanup
+- **Result**: Reliable graph database synchronization
+
+#### Visual Scan Integration
+- **Issue**: Visual scraper extracted MOAT data but ingestion handler ignored it
+- **Root Cause**: Missing `visual_scan_data` parameter handling in brand ingestion
+- **Fix**: Added visual scan data merging to enrich brands with archetype and voice vectors
+- **Result**: Complete MOAT structure from website analysis + PDF parsing
+
+#### Multi-Turn Conversation
+- **Issue**: Tweaks regenerated from scratch instead of refining existing images
+- **Fix**: Preserve session_id, pass previous_image_bytes to Gemini for context
 - **Result**: True multi-turn conversation, faster refinements
 
-### User-Controlled Workflow
-- **Issue**: Auto-correction without user input on low scores
-- **Fix**: First attempt always pauses for review (unless ≥95%)
-- **Result**: Users control the process, no unwanted changes
-
-### Audit Timeouts
+#### Audit Timeouts
 - **Issue**: Audits hung indefinitely, causing 5-minute timeouts
 - **Fix**: 2-minute timeout with graceful degradation
 - **Result**: Reliable audits, partial scores on timeout
 
-### Tweak State Validation
-- **Issue**: Missing brand_id caused tweak failures
+#### Tweak State Validation
+- **Issue**: Missing brand_id caused tweak failures across container restarts
 - **Fix**: Defensive state validation, populate from Job model
 - **Result**: Robust tweak workflow across container restarts
 
@@ -487,6 +508,12 @@ image = modal.Image.debian_slim() \
 | Distorted logos | Check logs for rasterization events |
 | Tweak not working | Check brand_id in state, verify session handling |
 | Low compliance | Refine guidelines, use templates |
+| ERR_CONNECTION_CLOSED | Enable async mode in dashboard, ensure proper polling |
+| Neo4j routing errors | Use `await` instead of `create_task()` for graph sync |
+| Visual scan data ignored | Verify `visual_scan_data` parameter in ingestion |
+| Auto-approval at 80%+ | Check audit prompt uses ≥95% threshold |
+| Missing identity core | Ensure visual scan includes archetype extraction |
+| Webhook delivery fails | Check webhook URL accessibility, review retry logs |
 
 
 ## API Reference

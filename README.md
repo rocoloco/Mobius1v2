@@ -42,24 +42,50 @@ cp .env.example .env
 
 ### Deployment
 
-See [DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md) for detailed deployment instructions.
+#### Quick Deployment
 
-Quick deployment:
-
-1. Set up Modal:
+1. **Set up Modal**:
 ```bash
 python scripts/setup_modal.py
+modal token new  # If not already authenticated
 ```
 
-2. Set up Supabase:
+2. **Set up Supabase** (use pooler URL for production):
 ```bash
 bash scripts/setup_supabase.sh
+# Ensure you use the pooler URL (port 6543) in production:
+# postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
 ```
 
-3. Deploy:
+3. **Configure Secrets**:
+```bash
+modal secret create mobius-secrets \
+  GEMINI_API_KEY=your_gemini_api_key \
+  SUPABASE_URL=your_supabase_pooler_url \
+  SUPABASE_KEY=your_supabase_key
+```
+
+4. **Deploy**:
 ```bash
 python scripts/deploy.py
+# Or manually: modal deploy src/mobius/api/app_consolidated.py
 ```
+
+5. **Verify Deployment**:
+```bash
+# Check health endpoint
+curl https://your-app.modal.run/v1/health
+
+# View logs
+modal app logs mobius-v2
+```
+
+#### Critical Configuration Notes
+
+- **Always use Supabase pooler URL (port 6543)** for production to avoid connection exhaustion
+- **Gemini API key** is required for both generation and auditing - get from [Google AI Studio](https://ai.google.dev)
+- **Async mode** should be enabled in dashboard for better user experience
+- **Neo4j sync** uses `await` pattern to prevent routing errors
 
 ## Development
 
@@ -903,6 +929,45 @@ psql $DATABASE_URL < supabase/migrations/004_storage_buckets.sql
 postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
 ```
 
+### Dashboard Connection Issues
+
+**Problem:** `ERR_CONNECTION_CLOSED` errors during asset generation
+
+**Solution:**
+1. Enable "Async Mode" toggle in dashboard
+2. Ensure backend is deployed with async mode implementation
+3. Dashboard should poll `/v1/jobs/{job_id}` every 3 seconds
+4. Check that generation endpoint returns immediately with `status="processing"`
+
+### Workflow Routing Issues
+
+**Problem:** Assets scoring 80-95% are auto-approved instead of requiring review
+
+**Solution:**
+1. Verify Gemini audit prompt uses ≥95% threshold for auto-approval
+2. Check workflow routing: 95%+ → completed, 70-95% → needs_review, <70% → failed
+3. Review audit logs for `approved=true/false` decisions
+
+### Neo4j Graph Sync Failures
+
+**Problem:** "Unable to retrieve routing information" errors
+
+**Solution:**
+1. Use `await` instead of `asyncio.create_task()` for graph sync operations
+2. Ensure graph sync completes before request context cleanup
+3. Check Neo4j connection health in logs
+4. Verify Neo4j credentials and network connectivity
+
+### Visual Scan Integration Issues
+
+**Problem:** Website scan extracts data but brand ingestion ignores it
+
+**Solution:**
+1. Verify `visual_scan_data` parameter is included in ingestion request
+2. Check that visual scan includes `identity_core` with archetype and voice vectors
+3. Ensure ingestion handler merges visual scan data with PDF parsing results
+4. Review logs for `visual_scan_data_received` events
+
 ### Gemini API Rate Limits
 
 **Problem:** Generation fails with "Rate limit exceeded" or 429 errors
@@ -933,48 +998,25 @@ postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.co
 curl "https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY"
 ```
 
-### Image Generation Timeouts
+### Multi-Turn Conversation Issues
 
-**Problem:** Generation fails with timeout errors
-
-**Solution:**
-1. System automatically retries with increased timeout (built-in)
-2. Check Gemini API status at [Google Cloud Status](https://status.cloud.google.com)
-3. Complex prompts may take longer - simplify if possible
-4. Review logs for specific timeout duration and model name
-5. Consider breaking complex generations into simpler steps
-
-### Webhook Delivery Failures
-
-**Problem:** Webhooks not being received
-
-**Solution:** 
-1. Check webhook URL is publicly accessible
-2. Verify webhook endpoint returns 200 status
-3. Check `jobs` table for `webhook_attempts` count
-4. Review logs for retry attempts
-
-### PDF Ingestion Failures
-
-**Problem:** Brand ingestion fails with validation errors
+**Problem:** Tweaks regenerate from scratch instead of refining existing images
 
 **Solution:**
-1. Verify PDF is under 50MB
-2. Check PDF is valid (not corrupted)
-3. Ensure PDF contains extractable text (not scanned images)
-4. Review `needs_review` field for ambiguous content
-5. Check logs for Gemini API errors during extraction
+1. Verify `session_id` is preserved across tweak requests
+2. Check that `previous_image_bytes` are passed to Gemini for context
+3. Ensure `attempt_count > 1` triggers `continue_conversation=True`
+4. Review logs for multi-turn conversation events
 
-### Compressed Twin Token Limit Exceeded
+### Audit Timeout Issues
 
-**Problem:** Brand ingestion fails with "Token limit exceeded" error
+**Problem:** Audits hang indefinitely or timeout after 5 minutes
 
 **Solution:**
-1. System automatically compresses guidelines to fit 60k token limit
-2. If still failing, brand guidelines may be extremely verbose
-3. Review PDF for excessive repetition or boilerplate text
-4. Consider manually editing PDF to remove non-essential content
-5. Check logs for actual token count estimate
+1. System uses 2-minute timeout with graceful degradation
+2. Check Gemini API status for service issues
+3. Review audit prompt complexity - simplify if needed
+4. Monitor logs for timeout events and partial scores
 
 ### Template Creation Fails
 

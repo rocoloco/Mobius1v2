@@ -104,7 +104,7 @@ const VoiceMeter: React.FC<VoiceMeterProps> = ({ label, value }) => {
       <div className="w-16 h-1.5 bg-gray-300/50 rounded-full overflow-hidden relative">
         <div
           className="h-full bg-blue-500/70 transition-all duration-500 rounded-full"
-          style={{ 
+          style={{
             width: `${percentage}%`,
             boxShadow: 'inset 1px 1px 2px rgba(0,0,0,0.1)'
           }}

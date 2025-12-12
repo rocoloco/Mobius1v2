@@ -46,95 +46,114 @@ const TerminalTeleprinter: React.FC<TerminalTeleprinterProps> = ({
   
   const [flashingLogId, setFlashingLogId] = useState<string | null>(null);
 
-  // Industrial terminal styling - matches existing design system
+  // CRT terminal styling - phosphor green industrial control room aesthetic
   const terminalStyles = useMemo(() => ({
     container: {
-      fontFamily: 'JetBrains Mono, monospace',
-      fontSize: '10px',
+      background: 'linear-gradient(145deg, #0a0f0a 0%, #0d1a0d 50%, #0a0f0a 100%)',
+      border: '2px solid #1a3d1a',
+      borderRadius: '8px',
+      boxShadow: `
+        0 0 20px rgba(0, 255, 0, 0.1),
+        inset 0 0 20px rgba(0, 0, 0, 0.8),
+        inset 0 2px 4px rgba(0, 255, 0, 0.05)
+      `,
+      padding: '1rem',
+      fontFamily: 'JetBrains Mono, Courier New, monospace',
+      fontSize: '11px',
       lineHeight: '1.4',
-      color: '#2d3436',
+      color: '#00ff41',
       height: '100%',
       overflow: 'hidden',
       position: 'relative' as const,
+      // CRT curvature effect
+      clipPath: 'inset(0 round 8px)',
     },
     scrollArea: {
       height: '100%',
       overflowY: 'auto' as const,
       scrollbarWidth: 'thin' as const,
-      scrollbarColor: 'rgba(45, 52, 54, 0.3) rgba(224, 229, 236, 0.5)',
-      backgroundColor: 'rgba(255, 255, 255, 0.2)',
-      borderRadius: '0.5rem',
+      scrollbarColor: 'rgba(0, 255, 65, 0.3) rgba(10, 15, 10, 0.8)',
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      borderRadius: '4px',
       padding: '0.75rem',
-      boxShadow: 'inset 2px 2px 8px rgba(140, 155, 175, 0.3), inset -1px -1px 4px rgba(255, 255, 255, 0.8)',
+      border: '1px solid rgba(0, 255, 65, 0.2)',
+      // Phosphor glow effect
+      textShadow: '0 0 5px rgba(0, 255, 65, 0.8)',
     },
     logEntry: {
-      marginBottom: '3px',
+      marginBottom: '4px',
       whiteSpace: 'pre-wrap' as const,
       wordBreak: 'break-word' as const,
-      padding: '2px 4px',
+      padding: '2px 6px',
       borderRadius: '2px',
-      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-      border: '1px solid rgba(140, 155, 175, 0.1)',
+      backgroundColor: 'rgba(0, 255, 65, 0.02)',
+      // Subtle phosphor glow on each line
+      textShadow: '0 0 3px rgba(0, 255, 65, 0.6)',
     }
   }), []);
 
-  // Industrial log level styling - matches existing design system
+  // CRT log level styling with phosphor green aesthetics
   const getLogLevelStyles = useCallback((level: ReasoningLog['level'], isFlashing: boolean = false) => {
     const baseStyles = {
-      padding: '2px 4px',
-      borderRadius: '3px',
+      padding: '2px 6px',
+      borderRadius: '2px',
       transition: 'all 0.3s ease',
       display: 'inline-block',
-      marginRight: '6px',
-      minWidth: '50px',
+      marginRight: '8px',
+      minWidth: '60px',
       textAlign: 'center' as const,
-      fontSize: '8px',
-      fontWeight: '600' as const,
-      letterSpacing: '0.05em',
+      fontSize: '9px',
+      fontWeight: '700' as const,
+      letterSpacing: '0.1em',
       textTransform: 'uppercase' as const,
-      fontFamily: 'Space Grotesk, system-ui, sans-serif',
+      fontFamily: 'JetBrains Mono, Courier New, monospace',
+      border: '1px solid',
     };
 
     const levelStyles = {
       info: {
-        background: isFlashing 
-          ? 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)'
-          : 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-        color: isFlashing ? '#ffffff' : '#1e40af',
-        border: '1px solid rgba(59, 130, 246, 0.3)',
+        backgroundColor: isFlashing ? 'rgba(0, 255, 65, 0.3)' : 'rgba(0, 255, 65, 0.1)',
+        color: isFlashing ? '#ffffff' : '#00ff41',
+        borderColor: 'rgba(0, 255, 65, 0.5)',
+        textShadow: isFlashing 
+          ? '0 0 8px rgba(0, 255, 65, 1)' 
+          : '0 0 4px rgba(0, 255, 65, 0.8)',
         boxShadow: isFlashing 
-          ? 'inset 1px 1px 2px rgba(255, 255, 255, 0.3), 0 2px 8px rgba(59, 130, 246, 0.4)'
-          : 'inset 1px 1px 2px rgba(255, 255, 255, 0.8), inset -1px -1px 2px rgba(59, 130, 246, 0.1)',
+          ? '0 0 10px rgba(0, 255, 65, 0.6)' 
+          : '0 0 5px rgba(0, 255, 65, 0.3)',
       },
       warning: {
-        background: isFlashing 
-          ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
-          : 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-        color: isFlashing ? '#ffffff' : '#92400e',
-        border: '1px solid rgba(245, 158, 11, 0.3)',
+        backgroundColor: isFlashing ? 'rgba(255, 165, 0, 0.3)' : 'rgba(255, 165, 0, 0.1)',
+        color: isFlashing ? '#ffffff' : '#ffaa00',
+        borderColor: 'rgba(255, 165, 0, 0.5)',
+        textShadow: isFlashing 
+          ? '0 0 8px rgba(255, 165, 0, 1)' 
+          : '0 0 4px rgba(255, 165, 0, 0.8)',
         boxShadow: isFlashing 
-          ? 'inset 1px 1px 2px rgba(255, 255, 255, 0.3), 0 2px 8px rgba(245, 158, 11, 0.4)'
-          : 'inset 1px 1px 2px rgba(255, 255, 255, 0.8), inset -1px -1px 2px rgba(245, 158, 11, 0.1)',
+          ? '0 0 10px rgba(255, 165, 0, 0.6)' 
+          : '0 0 5px rgba(255, 165, 0, 0.3)',
       },
       error: {
-        background: isFlashing 
-          ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-          : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-        color: isFlashing ? '#ffffff' : '#991b1b',
-        border: '1px solid rgba(239, 68, 68, 0.3)',
+        backgroundColor: isFlashing ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 0, 0, 0.1)',
+        color: isFlashing ? '#ffffff' : '#ff4444',
+        borderColor: 'rgba(255, 0, 0, 0.5)',
+        textShadow: isFlashing 
+          ? '0 0 8px rgba(255, 0, 0, 1)' 
+          : '0 0 4px rgba(255, 0, 0, 0.8)',
         boxShadow: isFlashing 
-          ? 'inset 1px 1px 2px rgba(255, 255, 255, 0.3), 0 2px 8px rgba(239, 68, 68, 0.4)'
-          : 'inset 1px 1px 2px rgba(255, 255, 255, 0.8), inset -1px -1px 2px rgba(239, 68, 68, 0.1)',
+          ? '0 0 10px rgba(255, 0, 0, 0.6)' 
+          : '0 0 5px rgba(255, 0, 0, 0.3)',
       },
       success: {
-        background: isFlashing 
-          ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-          : 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)',
-        color: isFlashing ? '#ffffff' : '#065f46',
-        border: '1px solid rgba(16, 185, 129, 0.3)',
+        backgroundColor: isFlashing ? 'rgba(0, 255, 0, 0.3)' : 'rgba(0, 255, 0, 0.1)',
+        color: isFlashing ? '#ffffff' : '#00ff00',
+        borderColor: 'rgba(0, 255, 0, 0.5)',
+        textShadow: isFlashing 
+          ? '0 0 8px rgba(0, 255, 0, 1)' 
+          : '0 0 4px rgba(0, 255, 0, 0.8)',
         boxShadow: isFlashing 
-          ? 'inset 1px 1px 2px rgba(255, 255, 255, 0.3), 0 2px 8px rgba(16, 185, 129, 0.4)'
-          : 'inset 1px 1px 2px rgba(255, 255, 255, 0.8), inset -1px -1px 2px rgba(16, 185, 129, 0.1)',
+          ? '0 0 10px rgba(0, 255, 0, 0.6)' 
+          : '0 0 5px rgba(0, 255, 0, 0.3)',
       }
     };
 
@@ -310,16 +329,18 @@ const TerminalTeleprinter: React.FC<TerminalTeleprinterProps> = ({
           </span>
           <span style={{ 
             opacity: displayedLog.isComplete ? 1 : 0.9,
-            color: '#374151',
-            fontFamily: 'JetBrains Mono, monospace'
+            color: '#00ff41',
+            fontFamily: 'JetBrains Mono, Courier New, monospace',
+            textShadow: '0 0 3px rgba(0, 255, 65, 0.6)'
           }}>
             {displayedLog.displayedText}
           </span>
           {!displayedLog.isComplete && (
             <span className="cursor" style={{ 
               marginLeft: '4px',
-              color: '#3b82f6',
-              fontWeight: 'bold'
+              color: '#00ff41',
+              fontWeight: 'bold',
+              textShadow: '0 0 5px rgba(0, 255, 65, 0.8)'
             }}>
               ▊
             </span>
@@ -349,23 +370,44 @@ const TerminalTeleprinter: React.FC<TerminalTeleprinterProps> = ({
           animation: blink 1.2s infinite ease-in-out;
         }
         
-        /* Industrial scrollbar styling */
+        /* CRT phosphor green scrollbar styling */
         .terminal-teleprinter div::-webkit-scrollbar {
           width: 6px;
         }
         
         .terminal-teleprinter div::-webkit-scrollbar-track {
-          background: rgba(224, 229, 236, 0.5);
-          border-radius: 3px;
+          background: rgba(0, 0, 0, 0.8);
+          border-radius: 2px;
         }
         
         .terminal-teleprinter div::-webkit-scrollbar-thumb {
-          background: rgba(45, 52, 54, 0.3);
-          border-radius: 3px;
+          background: rgba(0, 255, 65, 0.3);
+          border-radius: 2px;
+          box-shadow: 0 0 3px rgba(0, 255, 65, 0.5);
         }
         
         .terminal-teleprinter div::-webkit-scrollbar-thumb:hover {
-          background: rgba(45, 52, 54, 0.5);
+          background: rgba(0, 255, 65, 0.5);
+          box-shadow: 0 0 5px rgba(0, 255, 65, 0.8);
+        }
+        
+        /* CRT scanline effect */
+        .terminal-teleprinter::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 255, 65, 0.03) 2px,
+            rgba(0, 255, 65, 0.03) 4px
+          );
+          pointer-events: none;
+          z-index: 1;
         }
       `}</style>
     </div>
