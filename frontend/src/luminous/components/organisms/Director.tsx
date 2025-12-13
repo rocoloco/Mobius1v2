@@ -167,33 +167,34 @@ export const Director = memo(function Director({
       {brandGraph && (
         <button
           onClick={onBrandGraphClick}
-          className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-white/10 hover:bg-white/5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:ring-inset"
+          className="flex-shrink-0 flex items-center gap-3 border-b border-white/10 hover:bg-white/5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:ring-inset cursor-pointer"
+          style={{ padding: '12px 20px' }}
           data-testid="brand-graph-indicator"
-          aria-label={`${brandGraph.name} Brand Graph with ${brandGraph.ruleCount} rules. Click for details.`}
+          aria-label={`${brandGraph.name} Brand Graph. Click for details.`}
         >
           <Sparkles 
-            size={14} 
-            className={isGenerating ? 'animate-pulse' : ''}
+            size={16} 
+            className={`flex-shrink-0 ${isGenerating ? 'animate-pulse' : ''}`}
             style={{ color: luminousTokens.colors.accent.purple }}
           />
           <span 
-            className="text-xs font-medium truncate"
+            className="text-sm font-medium truncate"
             style={{ color: luminousTokens.colors.text.high }}
           >
             {brandGraph.name}
           </span>
           <span 
-            className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
+            className="text-[11px] font-mono px-2 py-1 rounded-full flex-shrink-0"
             style={{ 
               color: luminousTokens.colors.text.muted,
               backgroundColor: 'rgba(255, 255, 255, 0.05)',
             }}
           >
-            {brandGraph.ruleCount} rules · {brandGraph.colorCount} colors
+            {brandGraph.colorCount} colors{brandGraph.ruleCount > 0 ? ` · ${brandGraph.ruleCount} rules` : ''}
           </span>
           {brandGraph.archetype && (
             <span 
-              className="text-[10px] ml-auto hidden sm:inline"
+              className="text-[11px] ml-auto hidden md:inline flex-shrink-0"
               style={{ color: luminousTokens.colors.text.muted }}
             >
               {brandGraph.archetype}
