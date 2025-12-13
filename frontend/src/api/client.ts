@@ -4,6 +4,7 @@
  */
 
 import { retryWithBackoff, type RetryOptions } from '../utils/retry';
+import { apiCache } from './cache';
 
 // Default to the Modal deployment URL, can be overridden
 const DEFAULT_API_BASE = 'https://rocoloco--mobius-v2-final-fastapi-app.modal.run/v1';
@@ -99,7 +100,13 @@ class APIClient {
     return makeRequest();
   }
 
-  async get<T>(endpoint: string, retryOptions?: RetryOptions): Promise<T> {
+  async get<T>(endpoint: string, retryOptions?: RetryOptions, useCache: boolean = true): Promise<T> {
+    if (useCache) {
+      const cacheKey = `GET:${this.baseUrl}${endpoint}`;
+      return apiCache.get(cacheKey, () => 
+        this.request<T>(endpoint, { method: 'GET' }, retryOptions)
+      );
+    }
     return this.request<T>(endpoint, { method: 'GET' }, retryOptions);
   }
 

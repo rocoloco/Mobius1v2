@@ -4,8 +4,13 @@ Error handling utilities.
 Provides structured error responses with consistent formatting.
 """
 
+from functools import wraps
+from typing import Optional, Any, Dict, Callable, TypeVar, Awaitable
 from pydantic import BaseModel
-from typing import Optional, Any, Dict
+import structlog
+
+# Type variable for the return type of the wrapped function
+T = TypeVar('T')
 
 
 class ErrorDetail(BaseModel):
@@ -120,3 +125,108 @@ class AuditError(MobiusError):
 
     def __init__(self, message: str, request_id: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(500, "AUDIT_FAILED", message, request_id, details)
+
+
+def handle_api_errors(
+    logger: Any = None,
+    error_message: str = "An unexpected error occurred",
+):
+    """
+    Decorator to standardize error handling for FastAPI endpoint handlers.
+
+    Eliminates duplicate try-except blocks across all endpoints by providing
+    consistent error response formatting for both MobiusError and unexpected exceptions.
+
+    Args:
+        logger: Optional logger instance. If not provided, creates one.
+        error_message: Custom message for unexpected errors.
+
+    Usage:
+        @web_app.get("/v1/brands")
+        @handle_api_errors(logger=logger)
+        async def list_brands():
+            # No try-except needed - decorator handles it
+            result = await list_brands_handler()
+            return result
+
+    Returns:
+        - On success: The handler's return value
+        - On MobiusError: JSONResponse with structured error (status from error)
+        - On Exception: JSONResponse with 500 Internal Server Error
+    """
+    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Import here to avoid circular imports
+            from fastapi.responses import JSONResponse
+
+            # Use provided logger or create one
+            log = logger if logger is not None else structlog.get_logger()
+
+            try:
+                return await func(*args, **kwargs)
+            except MobiusError as e:
+                log.error(
+                    "endpoint_error",
+                    endpoint=func.__name__,
+                    error_code=e.error_response.error.code,
+                    error=str(e),
+                )
+                return JSONResponse(
+                    status_code=e.status_code,
+                    content={"error": e.error_response.model_dump()}
+                )
+            except Exception as e:
+                log.error(
+                    "unexpected_error",
+                    endpoint=func.__name__,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": {
+                            "code": "INTERNAL_ERROR",
+                            "message": error_message,
+                            "details": {"error": str(e)},
+                        }
+                    }
+                )
+        return wrapper
+    return decorator
+
+
+def create_error_response(
+    status_code: int,
+    code: str,
+    message: str,
+    details: Optional[Dict[str, Any]] = None,
+):
+    """
+    Factory function to create consistent error responses.
+
+    Use this when you need to return an error response manually
+    (e.g., in complex control flows where the decorator isn't suitable).
+
+    Args:
+        status_code: HTTP status code
+        code: Error code for programmatic handling
+        message: Human-readable error message
+        details: Optional additional error details
+
+    Returns:
+        JSONResponse with structured error format
+    """
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details or {},
+            }
+        }
+    )

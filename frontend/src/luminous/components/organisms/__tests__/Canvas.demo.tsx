@@ -162,8 +162,8 @@ export function CanvasDemo() {
               console.log('Version changed to:', index);
             }}
             onAcceptCorrection={() => {
-              console.log('Accept correction clicked');
-              alert('Auto-correction accepted! (Demo)');
+              console.log('Ship It clicked');
+              alert('Image shipped! (Demo)');
             }}
           />
         </div>

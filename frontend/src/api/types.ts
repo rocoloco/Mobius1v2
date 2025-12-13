@@ -292,6 +292,7 @@ export interface Version {
   score: number;
   timestamp: string;
   prompt: string;
+  violations?: Violation[]; // Store violations for each version
 }
 
 export interface SessionHistoryResponse {

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { luminousTokens } from '../../tokens';
 
 interface BoundingBoxProps {
@@ -26,7 +27,7 @@ interface BoundingBoxProps {
  * @param label - Violation description text
  * @param highlighted - Whether this box should be highlighted (dimming others)
  */
-export function BoundingBox({
+export const BoundingBox = memo(function BoundingBox({
   x,
   y,
   width,
@@ -74,4 +75,4 @@ export function BoundingBox({
       </div>
     </div>
   );
-}
+});

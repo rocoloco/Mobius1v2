@@ -26,8 +26,9 @@ class Settings(BaseSettings):
     supabase_key: str = ""
 
     # Gemini Model Configuration
-    reasoning_model: str = "gemini-3-pro-preview"
-    vision_model: str = "gemini-3-pro-image-preview"
+    reasoning_model: str = "gemini-3-pro-preview"  # For compliance auditing (needs strong reasoning)
+    vision_model: str = "gemini-3-pro-image-preview"  # For image generation
+    prompt_optimization_model: str = "gemini-2.5-flash-lite"  # Fast model for prompt optimization
 
     # Configuration
     max_generation_attempts: int = 3

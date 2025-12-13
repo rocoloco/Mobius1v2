@@ -12,3 +12,5 @@ export { ViolationItem } from './ViolationItem';
 export { ColorSwatch } from './ColorSwatch';
 export { VersionThumbnail } from './VersionThumbnail';
 export { BoundingBox } from './BoundingBox';
+export { CanvasEmptyState } from './CanvasEmptyState';
+export { CanvasGeneratingState } from './CanvasGeneratingState';

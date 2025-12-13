@@ -45,10 +45,10 @@ function DashboardSkeleton() {
         </div>
       </div>
       
-      {/* Grid skeleton - 4 zone layout */}
-      <div className="p-6 grid grid-cols-3 grid-rows-2 gap-6" style={{ height: 'calc(100vh - 64px)' }}>
-        {/* Director zone - full height left column */}
-        <GlassPanel className="row-span-2">
+      {/* Studio layout skeleton - 3 column */}
+      <div className="flex gap-6 p-6" style={{ height: 'calc(100vh - 64px)' }}>
+        {/* Director zone - 25% width */}
+        <GlassPanel className="w-1/4">
           <div className="h-full flex flex-col p-4 gap-4">
             {/* Brand graph indicator skeleton */}
             <div className="flex items-center gap-2 pb-3 border-b border-white/10">
@@ -64,28 +64,18 @@ function DashboardSkeleton() {
           </div>
         </GlassPanel>
         
-        {/* Canvas zone - center, full height */}
-        <GlassPanel className="row-span-2">
+        {/* Canvas zone - 50% width */}
+        <GlassPanel className="w-2/4">
           <div className="h-full flex items-center justify-center">
             <div className="w-32 h-32 rounded-lg bg-white/5 animate-pulse" />
           </div>
         </GlassPanel>
         
-        {/* Gauge zone - top right */}
-        <GlassPanel>
-          <div className="h-full flex items-center justify-center p-4">
-            <div className="w-24 h-24 rounded-full bg-white/5 animate-pulse" />
-          </div>
-        </GlassPanel>
-        
-        {/* Twin zone - bottom right */}
-        <GlassPanel>
-          <div className="h-full p-4 space-y-3">
-            <div className="w-1/2 h-4 rounded bg-white/5 animate-pulse" />
-            <div className="flex gap-2">
-              <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />
-              <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />
-            </div>
+        {/* Critic zone - 25% width (sleeping state) */}
+        <GlassPanel className="w-1/4 opacity-40">
+          <div className="h-full flex flex-col items-center justify-center">
+            <div className="w-8 h-8 rounded bg-white/5 animate-pulse mb-4" />
+            <div className="w-24 h-3 rounded bg-white/5 animate-pulse" />
           </div>
         </GlassPanel>
       </div>

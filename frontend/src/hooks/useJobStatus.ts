@@ -18,11 +18,25 @@ interface UseJobStatusReturn {
   error: Error | null;
   isPolling: boolean;
   connectionStatus: ConnectionStatus;
+  isTimedOut: boolean;
   refetch: () => Promise<void>;
 }
 
-const POLLING_INTERVAL_MS = 3000; // 3 seconds for faster feedback
-const REALTIME_FALLBACK_DELAY_MS = 5000; // Wait 5s before falling back to polling
+// Adaptive polling intervals based on job status
+const getPollingInterval = (status: string | undefined, attempt: number = 0): number => {
+  if (!status) return 5000;
+  
+  // Faster polling for active generation states
+  if (status === 'processing' || status === 'generating' || status === 'auditing') {
+    return Math.min(2000 + (attempt * 300), 4000); // 2s → 4s adaptive
+  }
+  
+  // Slower polling for other states
+  return 5000;
+};
+
+const REALTIME_FALLBACK_DELAY_MS = 3000; // Reduced from 5s to 3s
+const JOB_TIMEOUT_MS = 180000; // 3 minutes - if job is still pending after this, consider it stuck
 
 /**
  * Track job status with real-time updates and polling fallback
@@ -41,10 +55,14 @@ export function useJobStatus(jobId: string | null): UseJobStatusReturn {
   const [error, setError] = useState<Error | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState<ConnectionStatus>('disconnected');
+  const [isTimedOut, setIsTimedOut] = useState(false);
   
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jobTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRealtimeUpdateRef = useRef<number>(0);
+  const jobStartTimeRef = useRef<number>(0);
+  const pollingAttemptRef = useRef<number>(0); // Track polling attempts for adaptive intervals
 
   // Check if job is in terminal state
   const isTerminalState = useCallback((jobStatus: JobStatusResponse | null) => {
@@ -57,22 +75,33 @@ export function useJobStatus(jobId: string | null): UseJobStatusReturn {
     if (!jobId) return;
 
     try {
-      const response = await apiClient.get<JobStatusResponse>(`/jobs/${jobId}`, RETRY_CONFIGS.FAST);
+      // Disable caching for job status - we need fresh data on every poll
+      const response = await apiClient.get<JobStatusResponse>(`/jobs/${jobId}`, RETRY_CONFIGS.FAST, false);
       setStatus(response);
       setError(null);
       
-      // Stop polling if we reached terminal state
-      if (isTerminalState(response) && pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-        setIsPolling(false);
+      // Handle polling state based on job status
+      if (isTerminalState(response)) {
+        // Stop polling if we reached terminal state
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          setIsPolling(false);
+        }
+      } else if (!isPolling) {
+        // Restart polling if job is back in non-terminal state (e.g., after tweak)
+        // This handles the case where a tweak moves the job from needs_review to processing
+        console.log('Job back in non-terminal state, restarting polling');
+        jobStartTimeRef.current = Date.now(); // Reset timeout tracking
+        setIsTimedOut(false);
+        setIsPolling(true);
       }
     } catch (err) {
       const errorObj = err instanceof Error ? err : new Error('Failed to fetch job status');
       setError(errorObj);
       console.error('Error fetching job status:', errorObj);
     }
-  }, [jobId, isTerminalState]);
+  }, [jobId, isTerminalState, isPolling]);
 
   // Handle realtime updates
   const handleRealtimeUpdate = useCallback((update: JobStatusResponse) => {
@@ -115,10 +144,14 @@ export function useJobStatus(jobId: string | null): UseJobStatusReturn {
     if (jobId) {
       fetchJobStatus();
       lastRealtimeUpdateRef.current = 0; // Reset realtime tracking
+      jobStartTimeRef.current = Date.now(); // Track when we started tracking this job
+      setIsTimedOut(false); // Reset timeout state
     } else {
       setStatus(null);
       setError(null);
       setIsPolling(false);
+      setIsTimedOut(false);
+      jobStartTimeRef.current = 0;
     }
   }, [jobId, fetchJobStatus]);
 
@@ -158,7 +191,7 @@ export function useJobStatus(jobId: string | null): UseJobStatusReturn {
     };
   }, [jobId, connectionStatus, status, isPolling, isTerminalState]);
 
-  // Set up polling when needed
+  // Set up adaptive polling when needed
   useEffect(() => {
     // Only poll if we have a job, polling is enabled, and job is not terminal
     const shouldPoll = jobId && isPolling && !isTerminalState(status);
@@ -169,27 +202,121 @@ export function useJobStatus(jobId: string | null): UseJobStatusReturn {
         clearInterval(pollingIntervalRef.current);
       }
 
-      // Start polling
-      pollingIntervalRef.current = setInterval(fetchJobStatus, POLLING_INTERVAL_MS);
-      console.log(`Started polling for job ${jobId} (interval: ${POLLING_INTERVAL_MS}ms)`);
+      // Reset polling attempt counter when starting new polling session
+      pollingAttemptRef.current = 0;
+
+      // Start adaptive polling
+      const startAdaptivePolling = () => {
+        const interval = getPollingInterval(status?.status, pollingAttemptRef.current);
+        pollingIntervalRef.current = setTimeout(async () => {
+          await fetchJobStatus();
+          pollingAttemptRef.current += 1;
+          
+          // Continue polling if still needed
+          if (jobId && isPolling && !isTerminalState(status)) {
+            startAdaptivePolling();
+          }
+        }, interval);
+        
+        console.log(`Started adaptive polling for job ${jobId} (interval: ${interval}ms, attempt: ${pollingAttemptRef.current})`);
+      };
+
+      startAdaptivePolling();
     }
 
     return () => {
       if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
+        clearTimeout(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
     };
   }, [jobId, isPolling, status, fetchJobStatus, isTerminalState]);
 
+  // Job timeout detection - mark as timed out if stuck in pending state
+  useEffect(() => {
+    // Clear any existing timeout
+    if (jobTimeoutRef.current) {
+      clearTimeout(jobTimeoutRef.current);
+      jobTimeoutRef.current = null;
+    }
+
+    // Only set timeout if we have a job that's not in terminal state
+    if (!jobId || isTerminalState(status) || isTimedOut) {
+      return;
+    }
+
+    // Check if job is stuck in processing state (common when backend crashes)
+    if (status && (status.status === 'processing' || status.status === 'generating')) {
+      const elapsed = Date.now() - jobStartTimeRef.current;
+      if (elapsed > JOB_TIMEOUT_MS) {
+        console.warn(`Job ${jobId} stuck in ${status.status} state for ${elapsed / 1000}s`);
+        setIsTimedOut(true);
+        setError(new Error(`Job stuck in ${status.status} state. The backend may have crashed during image generation. Please try again.`));
+        
+        // Stop polling
+        if (pollingIntervalRef.current) {
+          clearTimeout(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          setIsPolling(false);
+        }
+        return;
+      }
+    }
+
+    // Calculate remaining time until timeout
+    const elapsed = Date.now() - jobStartTimeRef.current;
+    const remaining = Math.max(0, JOB_TIMEOUT_MS - elapsed);
+
+    if (remaining === 0) {
+      // Already timed out
+      console.warn(`Job ${jobId} timed out after ${JOB_TIMEOUT_MS / 1000}s in pending state`);
+      setIsTimedOut(true);
+      setError(new Error('Job timed out. The backend may have crashed. Please try again.'));
+      
+      // Stop polling
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+        setIsPolling(false);
+      }
+    } else {
+      // Set timeout for remaining time
+      jobTimeoutRef.current = setTimeout(() => {
+        // Double-check we're still in a non-terminal state
+        if (status && !isTerminalState(status)) {
+          console.warn(`Job ${jobId} timed out after ${JOB_TIMEOUT_MS / 1000}s in ${status.status} state`);
+          setIsTimedOut(true);
+          setError(new Error(`Job timed out after ${JOB_TIMEOUT_MS / 1000} seconds. This usually indicates a backend issue with image generation. Please try again.`));
+          
+          // Stop polling
+          if (pollingIntervalRef.current) {
+            clearTimeout(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+            setIsPolling(false);
+          }
+        }
+      }, remaining);
+    }
+
+    return () => {
+      if (jobTimeoutRef.current) {
+        clearTimeout(jobTimeoutRef.current);
+        jobTimeoutRef.current = null;
+      }
+    };
+  }, [jobId, status, isTimedOut, isTerminalState]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
+        clearTimeout(pollingIntervalRef.current);
       }
       if (fallbackTimeoutRef.current) {
         clearTimeout(fallbackTimeoutRef.current);
+      }
+      if (jobTimeoutRef.current) {
+        clearTimeout(jobTimeoutRef.current);
       }
     };
   }, []);
@@ -199,6 +326,7 @@ export function useJobStatus(jobId: string | null): UseJobStatusReturn {
     error,
     isPolling,
     connectionStatus: realtimeConnectionStatus,
+    isTimedOut,
     refetch: fetchJobStatus,
   };
 }

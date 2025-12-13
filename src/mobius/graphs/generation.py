@@ -17,6 +17,7 @@ from mobius.models.state import JobState
 from mobius.nodes.generate import generate_node
 from mobius.nodes.audit import audit_node
 from mobius.nodes.correct import correct_node
+from mobius.nodes.finalize import finalize_node
 from mobius.constants import DEFAULT_MAX_ATTEMPTS, DEFAULT_COMPLIANCE_THRESHOLD
 from mobius.config import settings
 from datetime import timezone
@@ -66,6 +67,7 @@ async def needs_review_node(state: JobState) -> dict:
 
     This node is reached when the compliance score is between 70-95%.
     The workflow pauses here and waits for user decision via the review API endpoint.
+    Also updates job status in database to ensure review state is persisted.
 
     Args:
         state: Current job state
@@ -73,6 +75,9 @@ async def needs_review_node(state: JobState) -> dict:
     Returns:
         Updated state dict with needs_review flag set
     """
+    from mobius.storage.jobs import JobStorage
+    from mobius.storage.files import FileStorage
+    
     job_id = state.get("job_id")
     current_score = state.get("compliance_scores", [])[-1].get("overall_score") if state.get("compliance_scores") else None
     
@@ -81,6 +86,74 @@ async def needs_review_node(state: JobState) -> dict:
         job_id=job_id,
         current_score=current_score
     )
+
+    # Upload image to Supabase Storage BEFORE storing job state
+    # This ensures the frontend receives a proper CDN URL instead of a huge base64 string
+    image_url = state.get("current_image_url")
+    stored_image_url = image_url  # Default to original (might already be a URL)
+    
+    if image_url and image_url.startswith("data:image"):
+        try:
+            file_storage = FileStorage()
+            attempt_count = state.get("attempt_count", 1)
+            
+            logger.info(
+                "uploading_review_image_to_storage",
+                job_id=job_id,
+                image_size_bytes=len(image_url),
+                attempt=attempt_count
+            )
+            
+            stored_image_url = await file_storage.upload_generated_image(
+                image_data_uri=image_url,
+                job_id=job_id,
+                attempt=attempt_count
+            )
+            
+            logger.info(
+                "review_image_uploaded",
+                job_id=job_id,
+                stored_url=stored_image_url[:100] if stored_image_url else None
+            )
+        except Exception as upload_error:
+            logger.error(
+                "review_image_upload_failed",
+                job_id=job_id,
+                error=str(upload_error)
+            )
+            # Keep base64 as fallback - frontend might still be able to display it
+            stored_image_url = image_url
+
+    # Update job status in database immediately to ensure review state is persisted
+    try:
+        job_storage = JobStorage()
+        await job_storage.update_job(job_id, {
+            "status": "needs_review",
+            "progress": 75.0,
+            "state": {
+                "prompt": state.get("prompt"),
+                "brand_id": state.get("brand_id"),
+                "compliance_scores": state.get("compliance_scores", []),
+                "is_approved": False,
+                "attempt_count": state.get("attempt_count", 0),
+                "image_uri": stored_image_url,  # Now a CDN URL instead of base64
+                "review_requested_at": datetime.now(timezone.utc).isoformat(),
+                "original_had_logos": state.get("original_had_logos", False),  # Preserve logo config
+            }
+        })
+        logger.info(
+            "job_status_updated_in_needs_review_node",
+            job_id=job_id,
+            status="needs_review",
+            current_score=current_score,
+            image_url_type="cdn" if stored_image_url and not stored_image_url.startswith("data:") else "base64"
+        )
+    except Exception as e:
+        logger.error(
+            "job_status_update_failed_in_needs_review_node",
+            job_id=job_id,
+            error=str(e)
+        )
 
     # Broadcast status change to WebSocket connections
     await broadcast_workflow_event(job_id, "status_change", {
@@ -99,6 +172,7 @@ async def needs_review_node(state: JobState) -> dict:
     return {
         "status": "needs_review",
         "needs_review": True,
+        "current_image_url": stored_image_url,  # Include CDN URL in state for subsequent operations
         "review_requested_at": datetime.now(timezone.utc).isoformat()
     }
 
@@ -108,6 +182,7 @@ async def complete_node(state: JobState) -> dict:
     Terminal node for successful completion.
 
     Cleans up session and marks job as completed.
+    Also updates job status in database to ensure completion is persisted.
 
     Args:
         state: Current job state
@@ -116,6 +191,7 @@ async def complete_node(state: JobState) -> dict:
         Updated state dict with completed status
     """
     from mobius.tools.gemini import GeminiClient
+    from mobius.storage.jobs import JobStorage
 
     job_id = state.get("job_id")
     session_id = state.get("session_id")
@@ -137,6 +213,38 @@ async def complete_node(state: JobState) -> dict:
                 job_id=job_id,
                 error=str(e)
             )
+
+    # Update job status in database immediately to ensure completion is persisted
+    # This is a safety measure in case the background task is killed before it can update
+    try:
+        job_storage = JobStorage()
+        image_url = state.get("current_image_url")
+        await job_storage.update_job(job_id, {
+            "status": "completed",
+            "progress": 100.0,
+            "state": {
+                "prompt": state.get("prompt"),
+                "brand_id": state.get("brand_id"),
+                "compliance_scores": state.get("compliance_scores", []),
+                "is_approved": state.get("is_approved", True),
+                "attempt_count": state.get("attempt_count", 0),
+                "image_uri": image_url,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "original_had_logos": state.get("original_had_logos", False),  # Preserve logo config
+            }
+        })
+        logger.info(
+            "job_status_updated_in_complete_node",
+            job_id=job_id,
+            status="completed",
+            image_url=image_url[:100] if image_url else None
+        )
+    except Exception as e:
+        logger.error(
+            "job_status_update_failed_in_complete_node",
+            job_id=job_id,
+            error=str(e)
+        )
 
     logger.info(
         "job_completed",
@@ -169,6 +277,7 @@ async def failed_node(state: JobState) -> dict:
     Terminal node for failed jobs.
 
     Cleans up session and marks job as failed.
+    Also updates job status in database to ensure failure is persisted.
 
     Args:
         state: Current job state
@@ -177,6 +286,7 @@ async def failed_node(state: JobState) -> dict:
         Updated state dict with failed status
     """
     from mobius.tools.gemini import GeminiClient
+    from mobius.storage.jobs import JobStorage
 
     job_id = state.get("job_id")
     session_id = state.get("session_id")
@@ -199,6 +309,32 @@ async def failed_node(state: JobState) -> dict:
                 job_id=job_id,
                 error=str(e)
             )
+
+    # Update job status in database immediately to ensure failure is persisted
+    try:
+        job_storage = JobStorage()
+        await job_storage.update_job(job_id, {
+            "status": "failed",
+            "progress": 0.0,
+            "state": {
+                "prompt": state.get("prompt"),
+                "brand_id": state.get("brand_id"),
+                "error": state.get("error", "Max attempts reached"),
+                "attempt_count": attempt_count,
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        })
+        logger.info(
+            "job_status_updated_in_failed_node",
+            job_id=job_id,
+            status="failed"
+        )
+    except Exception as e:
+        logger.error(
+            "job_status_update_failed_in_failed_node",
+            job_id=job_id,
+            error=str(e)
+        )
 
     logger.info(
         "job_failed",
@@ -226,13 +362,13 @@ async def failed_node(state: JobState) -> dict:
     }
 
 
-def route_after_audit(state: JobState) -> Literal["correct", "complete", "failed", "needs_review"]:
+def route_after_audit(state: JobState) -> Literal["correct", "finalize", "failed", "needs_review"]:
     """
     Route workflow after audit based on compliance score and attempt count.
 
     Routing logic:
     - If user already made a decision (approve/tweak/regenerate): handle accordingly
-    - If approved: route to "complete"
+    - If approved: route to "finalize" (upload image, then complete)
     - If score is 70-95%: route to "needs_review" (pause for user decision)
     - If max attempts reached: route to "failed"
     - Otherwise: route to "correct" for another attempt
@@ -241,7 +377,7 @@ def route_after_audit(state: JobState) -> Literal["correct", "complete", "failed
         state: Current job state with audit results
 
     Returns:
-        Next node to execute: "correct", "complete", "failed", or "needs_review"
+        Next node to execute: "correct", "finalize", "failed", or "needs_review"
 
     Examples:
         >>> state = {"is_approved": True, "attempt_count": 1}
@@ -259,11 +395,11 @@ def route_after_audit(state: JobState) -> Literal["correct", "complete", "failed
     # Check if user already made a decision (resumed workflow)
     user_decision = state.get("user_decision")
     if user_decision == "approve":
-        return "complete"
+        return "finalize"
 
     # Auto-approve if compliant (check this BEFORE user_decision to allow tweaked images to complete)
     if state.get("is_approved"):
-        return "complete"
+        return "finalize"
 
     # Only route to correct if user requested tweak AND there's still a tweak instruction pending
     # (user_tweak_instruction is cleared after being applied in correct_node)
@@ -311,12 +447,12 @@ def create_generation_workflow():
     Create the generation workflow with audit and correction loops.
     
     Workflow structure:
-        generate -> audit -> [correct -> generate] (loop) or complete/failed
+        generate -> audit -> [correct -> generate] (loop) or finalize -> complete/failed
     
-    The workflow uses the new generate_node which:
-    - Loads the Compressed Digital Twin from brand storage
-    - Uses the Vision Model (gemini-3-pro-image-preview) for generation
-    - Returns image_uri for downstream processing
+    The workflow uses optimized image passing:
+    - Generate node keeps image as base64 (no upload)
+    - Audit node processes base64 directly (no download)
+    - Finalize node uploads to Supabase after successful audit
     - Broadcasts real-time updates via WebSocket
     
     Returns:
@@ -333,6 +469,7 @@ def create_generation_workflow():
     workflow.add_node("audit", audit_node)
     workflow.add_node("correct", correct_node)
     workflow.add_node("needs_review", needs_review_node)
+    workflow.add_node("finalize", finalize_node)  # New node for final image upload
     workflow.add_node("complete", complete_node)
     workflow.add_node("failed", failed_node)
 
@@ -348,7 +485,7 @@ def create_generation_workflow():
         route_after_audit,
         {
             "correct": "correct",
-            "complete": "complete",  # Route to cleanup node
+            "finalize": "finalize",  # Upload image after successful audit
             "failed": "failed",  # Route to cleanup node
             "needs_review": "needs_review"  # Pause for user review
         }
@@ -356,6 +493,9 @@ def create_generation_workflow():
 
     # Correction loop back to generation
     workflow.add_edge("correct", "generate")
+    
+    # Finalize uploads image then completes
+    workflow.add_edge("finalize", "complete")
 
     # Terminal nodes route to END after cleanup
     workflow.add_edge("complete", END)
@@ -447,9 +587,33 @@ async def run_generation_workflow(
             "level": "info"
         })
 
-        # Create and run workflow
+        # Create and run workflow with timeout and proper cleanup
         workflow = create_generation_workflow()
-        final_state = await workflow.ainvoke(initial_state)
+        
+        # Set a reasonable timeout for the entire workflow (5 minutes)
+        import asyncio
+        try:
+            # Use asyncio.shield to prevent cancellation issues
+            final_state = await asyncio.wait_for(
+                asyncio.shield(workflow.ainvoke(initial_state)), 
+                timeout=300.0  # 5 minutes
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "generation_workflow_timeout",
+                job_id=job_id,
+                brand_id=brand_id,
+                timeout_seconds=300
+            )
+            raise Exception("Generation workflow timed out after 5 minutes")
+        except asyncio.CancelledError:
+            logger.warning(
+                "generation_workflow_cancelled",
+                job_id=job_id,
+                brand_id=brand_id
+            )
+            # Re-raise to let the caller handle it
+            raise
         
         # Determine final status
         if final_state.get("is_approved"):

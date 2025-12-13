@@ -51,7 +51,7 @@ describe('Canvas', () => {
       />
     );
 
-    expect(screen.getByTestId('skeleton-loader')).toBeTruthy();
+    expect(screen.getByTestId('generating-state')).toBeTruthy();
   });
 
   it('renders auditing overlay when status is auditing', () => {
@@ -129,10 +129,10 @@ describe('Canvas', () => {
     );
 
     expect(screen.getByTestId('download-button')).toBeTruthy();
-    expect(screen.getByText('Download / Export')).toBeTruthy();
+    expect(screen.getByText('Download')).toBeTruthy();
   });
 
-  it('renders accept correction button when score is 70-95%', () => {
+  it('renders ship it button when score is 70-95%', () => {
     render(
       <Canvas
         imageUrl="https://example.com/image.png"
@@ -147,8 +147,8 @@ describe('Canvas', () => {
       />
     );
 
-    expect(screen.getByTestId('accept-correction-button')).toBeTruthy();
-    expect(screen.getByText('Accept Auto-Correction')).toBeTruthy();
+    expect(screen.getByTestId('ship-it-button')).toBeTruthy();
+    expect(screen.getByText('Ship It')).toBeTruthy();
   });
 
   it('does not render action button when score is < 70%', () => {
@@ -191,7 +191,7 @@ describe('Canvas', () => {
     expect(onVersionChange).toHaveBeenCalledWith(1);
   });
 
-  it('calls onAcceptCorrection when accept button is clicked', () => {
+  it('calls onAcceptCorrection when ship it button is clicked', () => {
     const onAcceptCorrection = vi.fn();
     render(
       <Canvas
@@ -207,7 +207,7 @@ describe('Canvas', () => {
       />
     );
 
-    const button = screen.getByTestId('accept-correction-button');
+    const button = screen.getByTestId('ship-it-button');
     fireEvent.click(button);
 
     expect(onAcceptCorrection).toHaveBeenCalled();

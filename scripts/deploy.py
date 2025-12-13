@@ -230,7 +230,7 @@ def deploy_to_modal(environment: str = "staging") -> bool:
     """
     print_info(f"Deploying to Modal ({environment})...")
     
-    app_file = "src/mobius/api/app.py"
+    app_file = "src/mobius/api/app_consolidated.py"
     
     if not os.path.exists(app_file):
         print_error(f"Application file not found: {app_file}")

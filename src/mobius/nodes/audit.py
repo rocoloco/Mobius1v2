@@ -12,6 +12,7 @@ from typing import Dict, Any, List
 
 import structlog
 import time
+import asyncio
 
 # Internal imports based on your Project Structure (Week 1)
 from mobius.models.state import JobState
@@ -128,6 +129,14 @@ async def audit_node(state: JobState) -> Dict[str, Any]:
         if not image_uri:
             raise ValueError("No image_uri found in state")
         
+        logger.info(
+            "audit_received_image",
+            job_id=job_id,
+            image_type="data_uri" if image_uri.startswith("data:") else "url",
+            image_size=len(image_uri) if image_uri.startswith("data:") else "unknown",
+            operation_type=operation_type
+        )
+        
         # 2. Load full brand guidelines from database
         brand_id = state.get("brand_id")
         if not brand_id:
@@ -148,6 +157,8 @@ async def audit_node(state: JobState) -> Dict[str, Any]:
         # - Uses full BrandGuidelines for comprehensive auditing (Requirement 4.3)
         # - Returns structured ComplianceScore (Requirement 4.4)
         client = GeminiClient()
+        
+        # Call audit compliance directly
         compliance = await client.audit_compliance(
             image_uri=image_uri,
             brand_guidelines=brand.guidelines

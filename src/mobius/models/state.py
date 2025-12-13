@@ -38,6 +38,9 @@ class JobState(TypedDict, total=False):
     user_decision: Optional[str]  # "approve" | "tweak" | "regenerate"
     user_tweak_instruction: Optional[str]
     approval_override: bool  # True if user approved despite low score
+    
+    # Logo configuration preservation for tweaks
+    original_had_logos: bool  # Whether the original generation included logos
 
 
 class IngestionState(TypedDict):

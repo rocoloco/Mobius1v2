@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { luminousTokens } from '../../tokens';
 
 interface ChatMessageProps {
@@ -17,7 +18,7 @@ interface ChatMessageProps {
  * @param content - Message text content
  * @param timestamp - Message timestamp
  */
-export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
   const isUser = role === 'user';
   const isError = role === 'error';
   
@@ -83,4 +84,4 @@ export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
       </div>
     </div>
   );
-}
+});

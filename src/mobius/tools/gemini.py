@@ -16,6 +16,7 @@ import structlog
 import json
 import asyncio
 import time
+import httpx
 
 logger = structlog.get_logger()
 
@@ -27,13 +28,15 @@ class GeminiClient:
     Uses separate models for different tasks:
     - Reasoning Model (gemini-3-pro-preview): PDF parsing, compliance auditing
     - Vision Model (gemini-3-pro-image-preview): Image generation
+    
+    Enhanced with HTTP connection pooling for improved performance.
     """
 
     def __init__(self):
-        """Initialize Gemini client with both reasoning and vision models."""
+        """Initialize Gemini client with reasoning, vision, and fast optimization models."""
         genai.configure(api_key=settings.gemini_api_key)
 
-        # Initialize both model instances
+        # Initialize reasoning model for compliance auditing (needs strong reasoning)
         self.reasoning_model = genai.GenerativeModel(settings.reasoning_model)
 
         # Initialize vision model for image generation
@@ -41,6 +44,24 @@ class GeminiClient:
             model_name=settings.vision_model,
             generation_config=GenerationConfig(
                 temperature=0.7,
+            )
+        )
+        
+        # Initialize fast model for prompt optimization (Gemini 2.5 Flash-Lite)
+        # This is much faster than the reasoning model for simple tasks
+        self.prompt_optimization_model = genai.GenerativeModel(
+            model_name=settings.prompt_optimization_model,
+            generation_config=GenerationConfig(
+                temperature=0.7,
+            )
+        )
+
+        # HTTP client with connection pooling for external requests (logos, images)
+        self.http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0),  # Reduced from 30s to 15s
+            limits=httpx.Limits(
+                max_connections=10,  # Pool of 10 connections
+                max_keepalive_connections=5  # Keep 5 connections alive
             )
         )
 
@@ -53,6 +74,9 @@ class GeminiClient:
             "gemini_client_initialized",
             reasoning_model=settings.reasoning_model,
             vision_model=settings.vision_model,
+            prompt_optimization_model=settings.prompt_optimization_model,
+            http_pool_max_connections=10,
+            http_pool_keepalive=5,
             operation_type="client_initialization"
         )
     
@@ -264,7 +288,7 @@ class GeminiClient:
                 # Use response_schema for structured output
                 generation_config.response_schema = response_schema
 
-            # Generate content using reasoning model
+            # Direct call without threading to avoid executor shutdown
             result = self.reasoning_model.generate_content(
                 [prompt, {"mime_type": "image/jpeg", "data": image_bytes}],
                 generation_config=generation_config,
@@ -377,7 +401,7 @@ class GeminiClient:
                 # Use response_schema for structured output
                 generation_config.response_schema = response_schema
 
-            # Generate content with PDF using reasoning model
+            # Direct call without threading to avoid executor shutdown
             result = self.reasoning_model.generate_content(
                 [prompt, {"mime_type": "application/pdf", "data": pdf_bytes}],
                 generation_config=generation_config,
@@ -723,16 +747,24 @@ Enhance the user's prompt to be more specific and brand-compliant. Include:
 Return ONLY the optimized prompt, no explanations or preamble."""
 
         try:
-            # Use Reasoning Model for optimization
-            generation_config = GenerationConfig(temperature=0.7)
-
-            result = await asyncio.to_thread(
-                self.reasoning_model.generate_content,
-                [optimization_prompt],
-                generation_config=generation_config,
+            # Use fast Flash-Lite model for prompt optimization (much faster than reasoning model)
+            # This should complete in 2-5 seconds instead of 60-70 seconds
+            
+            # Run with timeout to prevent hanging
+            async def call_optimization_model():
+                # Use asyncio.to_thread to run the synchronous API call without blocking
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: self.prompt_optimization_model.generate_content([optimization_prompt])
+                )
+                return result.text.strip()
+            
+            # 15 second timeout - if it takes longer, fall back to original prompt
+            optimized_prompt = await asyncio.wait_for(
+                call_optimization_model(),
+                timeout=15.0
             )
-
-            optimized_prompt = result.text.strip()
 
             latency_ms = int((time.time() - start_time) * 1000)
 
@@ -741,15 +773,30 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                 user_prompt=user_prompt,
                 optimized_prompt=optimized_prompt,
                 operation_type=operation_type,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                model=settings.prompt_optimization_model
             )
 
             return optimized_prompt
 
+        except asyncio.TimeoutError:
+            latency_ms = int((time.time() - start_time) * 1000)
+            logger.warning(
+                "prompt_optimization_timeout_using_original",
+                timeout_seconds=15,
+                latency_ms=latency_ms,
+                operation_type=operation_type
+            )
+            # Fall back to original prompt if optimization times out
+            return user_prompt
+            
         except Exception as e:
+            latency_ms = int((time.time() - start_time) * 1000)
             logger.warning(
                 "prompt_optimization_failed_using_original",
                 error=str(e),
+                error_type=type(e).__name__,
+                latency_ms=latency_ms,
                 operation_type=operation_type
             )
             # Fall back to original prompt if optimization fails
@@ -794,9 +841,9 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         
         model_name = settings.vision_model
         operation_type = "image_generation"
-        max_attempts = 3
-        base_delay = 1.0  # Start with 1 second delay
-        base_timeout = 30.0  # Start with 30 second timeout
+        max_attempts = 2  # Keep at 2 attempts (good optimization)
+        base_delay = 1.0  # Back to 1.0 second delay
+        base_timeout = 180.0  # Increase to 3 minutes (180 seconds) for complex generations
         start_time = time.time()
         
         # Estimate input token count (prompt + compressed twin)
@@ -901,7 +948,7 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         last_exception = None
         for attempt in range(1, max_attempts + 1):
             try:
-                # Increase timeout on each retry: 30s, 60s, 120s
+                # Reasonable timeout progression: 3min, 6min (180s, 360s)
                 timeout = base_timeout * (2 ** (attempt - 1))
                 
                 logger.info(
@@ -924,23 +971,17 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                         is_correction=continue_conversation,
                         operation_type=operation_type
                     )
-                    result = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            session.send_message,
-                            content_parts,
-                            generation_config=generation_config,
-                        ),
-                        timeout=timeout
+                    # Direct call without threading to avoid executor shutdown
+                    result = session.send_message(
+                        content_parts,
+                        generation_config=generation_config,
                     )
                 else:
                     # Direct generation for new conversations
-                    result = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            self.vision_model.generate_content,
-                            content_parts,
-                            generation_config=generation_config,
-                        ),
-                        timeout=timeout
+                    # Direct call without threading to avoid executor shutdown
+                    result = self.vision_model.generate_content(
+                        content_parts,
+                        generation_config=generation_config,
                     )
                 
                 # Extract image URI from response
@@ -980,7 +1021,7 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                 
                 # If this was the last attempt, don't sleep
                 if attempt < max_attempts:
-                    # Exponential backoff: 1s, 2s, 4s
+                    # Reasonable backoff: 1s, 2s
                     delay = base_delay * (2 ** (attempt - 1))
                     logger.info(
                         "retrying_after_timeout",
@@ -1007,7 +1048,7 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                 
                 # If this was the last attempt, don't sleep
                 if attempt < max_attempts:
-                    # Exponential backoff: 1s, 2s, 4s
+                    # Reasonable backoff: 1s, 2s
                     delay = base_delay * (2 ** (attempt - 1))
                     logger.info(
                         "retrying_after_delay",
@@ -1210,7 +1251,7 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         start_time = time.time()
         
         logger.info(
-            "auditing_compliance",
+            "auditing_compliance_start",
             image_uri=image_uri[:100] if image_uri else None,
             model_name=model_name,
             operation_type=operation_type
@@ -1218,7 +1259,9 @@ Return ONLY the optimized prompt, no explanations or preamble."""
         
         try:
             # Build audit prompt with full brand guidelines context
+            logger.info("building_audit_prompt", operation_type=operation_type)
             audit_prompt = self._build_audit_prompt(brand_guidelines)
+            logger.info("audit_prompt_built", prompt_length=len(audit_prompt), operation_type=operation_type)
 
             # Estimate input token count
             input_token_count = self._estimate_token_count(audit_prompt)
@@ -1231,17 +1274,12 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                 operation_type=operation_type
             )
             
-            # Download image from URI if it's a URL
+            # Process image data - prioritize base64 to avoid network round-trip
+            logger.info("processing_image_for_audit", image_uri_type=image_uri.split(':')[0], operation_type=operation_type)
             image_data = None
-            if image_uri.startswith('http://') or image_uri.startswith('https://'):
-                import httpx
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(image_uri)
-                    response.raise_for_status()
-                    image_data = response.content
-                    mime_type = response.headers.get('content-type', 'image/jpeg')
-            elif image_uri.startswith('data:'):
-                # Handle data URI
+            
+            if image_uri.startswith('data:'):
+                # Handle data URI (preferred - no network call needed)
                 import base64
                 import re
                 match = re.match(r'data:([^;]+);base64,(.+)', image_uri)
@@ -1249,8 +1287,33 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                     mime_type = match.group(1)
                     encoded_data = match.group(2)
                     image_data = base64.b64decode(encoded_data)
+                    
+                    logger.info(
+                        "audit_using_direct_base64",
+                        image_size_bytes=len(image_data),
+                        mime_type=mime_type,
+                        operation_type=operation_type
+                    )
                 else:
                     raise ValueError(f"Invalid data URI format: {image_uri[:100]}")
+                    
+            elif image_uri.startswith('http://') or image_uri.startswith('https://'):
+                # Fallback: download from URL (less efficient)
+                import httpx
+                logger.info("falling_back_to_image_download", operation_type=operation_type)
+                
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    response = await client.get(image_uri)
+                    response.raise_for_status()
+                    image_data = response.content
+                    mime_type = response.headers.get('content-type', 'image/jpeg')
+                    
+                    logger.info(
+                        "audit_image_downloaded",
+                        image_size_bytes=len(image_data),
+                        mime_type=mime_type,
+                        operation_type=operation_type
+                    )
             else:
                 raise ValueError(f"Unsupported image URI format: {image_uri[:100]}")
             
@@ -1259,21 +1322,47 @@ Return ONLY the optimized prompt, no explanations or preamble."""
                 temperature=0.1,  # Low temperature for consistent auditing
                 response_mime_type="application/json",
             )
-            generation_config.response_schema = ComplianceScore
+            
+            # Try with response schema first, fall back to JSON parsing if needed
+            try:
+                generation_config.response_schema = ComplianceScore
+                use_response_schema = True
+            except Exception as schema_error:
+                logger.warning(
+                    "response_schema_setup_failed",
+                    error=str(schema_error),
+                    operation_type=operation_type
+                )
+                use_response_schema = False
             
             # Generate compliance audit using reasoning model with multimodal input
-            # Add timeout to prevent hanging (120 seconds for audit)
-            result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.reasoning_model.generate_content,
-                    [audit_prompt, {"mime_type": mime_type, "data": image_data}],
-                    generation_config=generation_config,
-                ),
-                timeout=120.0  # 2 minute timeout for audit
+            logger.info("calling_reasoning_model_for_audit", image_size_bytes=len(image_data), operation_type=operation_type)
+            
+            # Direct call without threading to avoid executor shutdown
+            result = self.reasoning_model.generate_content(
+                [audit_prompt, {"mime_type": mime_type, "data": image_data}],
+                generation_config=generation_config,
             )
             
+            logger.info("reasoning_model_audit_complete", response_length=len(result.text), operation_type=operation_type)
+            
             # Parse response as ComplianceScore
-            compliance_score = ComplianceScore.model_validate_json(result.text)
+            try:
+                if use_response_schema:
+                    compliance_score = ComplianceScore.model_validate_json(result.text)
+                else:
+                    # Fallback: parse JSON manually
+                    import json
+                    response_data = json.loads(result.text)
+                    compliance_score = ComplianceScore(**response_data)
+            except Exception as parse_error:
+                logger.error(
+                    "compliance_response_parse_failed",
+                    response_text=result.text[:500],
+                    error=str(parse_error),
+                    operation_type=operation_type
+                )
+                raise
             
             # Calculate latency and token count
             latency_ms = int((time.time() - start_time) * 1000)

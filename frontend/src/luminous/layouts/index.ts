@@ -6,3 +6,4 @@
  */
 
 export { BentoGrid } from './BentoGrid';
+export { StudioLayout } from './StudioLayout';

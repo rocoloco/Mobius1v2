@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiClient } from '../client';
 import type { BrandListResponse, BrandDetailResponse, BrandGraphResponse } from '../types';
 import type { Brand } from '../../types';
+import { measureAsync } from '../../utils/performance';
 
 /**
  * Hook to fetch and manage brands list
@@ -16,7 +17,9 @@ export const useBrands = () => {
       setLoading(true);
       setError(null);
 
-      const response = await apiClient.get<BrandListResponse>('/brands');
+      const response = await measureAsync('Fetch Brands', () => 
+        apiClient.get<BrandListResponse>('/brands')
+      );
 
       // Convert API response to internal Brand type
       const convertedBrands: Brand[] = response.brands.map(b => ({
@@ -68,14 +71,13 @@ export const useBrandDetails = (brandId: string | null) => {
         setLoading(true);
         setError(null);
 
-        // Fetch brand graph which includes identity core
-        const graphResponse = await apiClient.get<BrandGraphResponse>(
-          `/brands/${brandId}/graph`
-        );
-
-        // Also fetch basic details for logo
-        const detailsResponse = await apiClient.get<BrandDetailResponse>(
-          `/brands/${brandId}`
+        // Fetch both endpoints in parallel for better performance
+        const [graphResponse, detailsResponse] = await measureAsync(
+          `Fetch Brand Details (${brandId})`, 
+          () => Promise.all([
+            apiClient.get<BrandGraphResponse>(`/brands/${brandId}/graph`),
+            apiClient.get<BrandDetailResponse>(`/brands/${brandId}`)
+          ])
         );
 
         // Extract primary color from visual tokens

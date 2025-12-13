@@ -39,6 +39,7 @@ export interface DashboardState {
   status: JobStatusResponse | null;
   isPolling: boolean;
   isSubmitting: boolean;
+  isTimedOut: boolean;
   
   // Image and audit data
   currentImageUrl?: string;
@@ -66,14 +67,21 @@ export interface DashboardActions {
   submitPrompt: (prompt: string) => Promise<void>;
   loadVersion: (index: number) => void;
   acceptCorrection: () => Promise<void>;
+  requestTweak: (instruction: string) => Promise<void>;
   retryGeneration: () => Promise<void>;
   clearError: () => void;
+  startNewSession: () => void;
 }
 
-// Combined context value
+// Combined context value (kept for backward compatibility)
 export interface DashboardContextValue extends DashboardState, DashboardActions {}
 
-// Create context
+// Create separate contexts to prevent unnecessary re-renders
+// Components using only actions won't re-render when state changes
+const DashboardStateContext = createContext<DashboardState | null>(null);
+const DashboardActionsContext = createContext<DashboardActions | null>(null);
+
+// Legacy combined context (for backward compatibility)
 const DashboardContext = createContext<DashboardContextValue | null>(null);
 
 // Provider props
@@ -81,6 +89,7 @@ export interface DashboardProviderProps {
   children: React.ReactNode;
   brandId: string;
   initialSessionId?: string;
+  brandsLoading?: boolean;
 }
 
 /**
@@ -100,6 +109,7 @@ export function DashboardProvider({
   children,
   brandId,
   initialSessionId,
+  brandsLoading: _brandsLoading = false,
 }: DashboardProviderProps) {
   // Local state
   const [jobId, setJobId] = useState<string | null>(null);
@@ -115,6 +125,8 @@ export function DashboardProvider({
     error: jobError,
     isPolling,
     connectionStatus: realtimeConnectionStatus,
+    isTimedOut,
+    refetch: refetchJobStatus,
   } = useJobStatus(jobId);
 
   const {
@@ -127,23 +139,35 @@ export function DashboardProvider({
 
   // Derive connection status from realtime status and polling state
   const connectionStatus: 'connected' | 'disconnected' | 'connecting' = useMemo(() => {
+    // If no active job, show as connected (app is ready/idle)
+    if (!jobId) return 'connected';
     // If realtime is connected, we're connected
     if (realtimeConnectionStatus === 'connected') return 'connected';
     // If realtime is connecting, show connecting
     if (realtimeConnectionStatus === 'connecting') return 'connecting';
     // If polling is active, show as connecting (degraded mode)
-    if (isPolling && jobId) return 'connecting';
-    // Otherwise disconnected
+    if (isPolling) return 'connecting';
+    // Otherwise disconnected (realtime failed and no polling)
     return 'disconnected';
   }, [realtimeConnectionStatus, isPolling, jobId]);
 
-  // Update error state when job error occurs
+  // Update error state when job error occurs or times out
   useEffect(() => {
     if (jobError) {
       setError(jobError);
       setIsSubmitting(false);
+      
+      // Add timeout error message to chat if it's a timeout
+      if (isTimedOut) {
+        const errorMessage: ChatMessage = {
+          role: 'error',
+          content: 'Image generation timed out after 3 minutes. This usually happens when the AI image generation service is overloaded or experiencing issues. Please try again with a simpler prompt or wait a few minutes.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
     }
-  }, [jobError]);
+  }, [jobError, isTimedOut]);
 
   // Clear isSubmitting when job status is received (polling has started)
   useEffect(() => {
@@ -152,11 +176,25 @@ export function DashboardProvider({
     }
   }, [jobStatus?.status]);
 
-  // Extract data from job status
-  const currentImageUrl = jobStatus?.current_image_url;
-  const complianceScore = jobStatus?.compliance_score;
-  const violations = jobStatus?.violations || [];
-  const twinData = jobStatus?.twin_data;
+  // Determine if user is viewing a historical version or the latest
+  // If currentVersionIndex points to the last version, show live jobStatus data
+  // Otherwise, show the selected version's data
+  const isViewingLatest = versions.length === 0 || currentVersionIndex === versions.length - 1;
+  
+  // Extract data - use selected version when viewing history, jobStatus when viewing latest
+  const currentImageUrl = isViewingLatest 
+    ? jobStatus?.current_image_url 
+    : currentVersion?.image_url;
+  
+  const complianceScore = isViewingLatest 
+    ? jobStatus?.compliance_score 
+    : currentVersion?.score;
+  
+  const violations = isViewingLatest 
+    ? (jobStatus?.violations || [])
+    : (currentVersion?.violations || []);
+  
+  const twinData = jobStatus?.twin_data; // Twin data is always from latest job
 
   // Action: Submit a new prompt
   const submitPrompt = useCallback(async (prompt: string) => {
@@ -263,34 +301,128 @@ export function DashboardProvider({
     }
   }, [loadVersionFromHistory, versions]);
 
-  // Action: Accept auto-correction
+  // Action: Ship It - User approves the image based on their aesthetic judgment
+  // This respects the user's creative vision regardless of compliance score
   const acceptCorrection = useCallback(async () => {
     if (!jobId) {
-      console.warn('No active job to accept correction for');
+      console.warn('No active job to ship');
       return;
     }
 
     try {
       setError(null);
 
-      // Call accept correction API with retry logic
-      // Note: Adjust endpoint based on actual API
-      await apiClient.post(`/jobs/${jobId}/accept`, {}, RETRY_CONFIGS.STANDARD);
+      // First, call review API with "approve" decision to ship the current image
+      // This marks the job as complete, respecting the user's aesthetic judgment
+      await apiClient.post(`/jobs/${jobId}/review`, { 
+        decision: 'approve' 
+      }, RETRY_CONFIGS.STANDARD);
 
-      // Add system message
+      // Then save to asset library for future reference
+      try {
+        await apiClient.post(`/jobs/${jobId}/save-asset`, {}, RETRY_CONFIGS.STANDARD);
+      } catch (saveError) {
+        // Don't fail the whole operation if asset save fails
+        console.warn('Failed to save asset to library:', saveError);
+      }
+
+      // Add system message with positive, confident tone
       const systemMessage: ChatMessage = {
         role: 'system',
-        content: 'Auto-correction accepted. Generating corrected version...',
+        content: 'Perfect! Your image has been shipped and saved to your asset library.',
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, systemMessage]);
 
     } catch (err) {
-      const errorObj = err instanceof Error ? err : new Error('Failed to accept correction');
+      const errorObj = err instanceof Error ? err : new Error('Failed to ship image');
       setError(errorObj);
-      console.error('Error accepting correction:', errorObj);
+      console.error('Error shipping image:', errorObj);
+      
+      // Add error message to chat
+      const errorMessage: ChatMessage = {
+        role: 'error',
+        content: `Failed to ship: ${errorObj.message}`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
     }
   }, [jobId]);
+
+  // Action: Request a tweak to fix violations or edit the existing image
+  // Uses the appropriate endpoint based on job status to preserve image context
+  const requestTweak = useCallback(async (instruction: string) => {
+    if (!jobId) {
+      console.warn('No active job to tweak');
+      // Fall back to regular prompt submission if no active job
+      await submitPrompt(instruction);
+      return;
+    }
+
+    const currentStatus = jobStatus?.status;
+    
+    // Use tweak endpoints for both needs_review and completed jobs
+    // This preserves the previous image context for multi-turn editing
+    if (currentStatus === 'needs_review' || currentStatus === 'completed') {
+      try {
+        setError(null);
+        setIsSubmitting(true);
+
+        // Add user message to chat
+        const userMessage: ChatMessage = {
+          role: 'user',
+          content: instruction,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, userMessage]);
+
+        if (currentStatus === 'needs_review') {
+          // Call review API with "tweak" decision for needs_review jobs
+          await apiClient.post(`/jobs/${jobId}/review`, { 
+            decision: 'tweak',
+            tweak_instruction: instruction,
+          }, RETRY_CONFIGS.STANDARD);
+        } else {
+          // Call tweak endpoint for completed jobs
+          // This endpoint is specifically designed for multi-turn refinement
+          await apiClient.post(`/jobs/${jobId}/tweak`, { 
+            tweak_instruction: instruction,
+          }, RETRY_CONFIGS.STANDARD);
+        }
+
+        // Add system message
+        const systemMessage: ChatMessage = {
+          role: 'system',
+          content: 'Applying changes to the current image...',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, systemMessage]);
+        
+        // Trigger a refetch to restart polling for the updated job status
+        // The job is now back in 'processing' state and needs to be tracked
+        setTimeout(() => {
+          refetchJobStatus();
+        }, 1000); // Small delay to let backend update job status
+
+      } catch (err) {
+        const errorObj = err instanceof Error ? err : new Error('Failed to apply tweak');
+        setError(errorObj);
+        setIsSubmitting(false);
+        console.error('Error applying tweak:', errorObj);
+        
+        // Add error message to chat
+        const errorMessage: ChatMessage = {
+          role: 'error',
+          content: `Failed to apply changes: ${errorObj.message}`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    } else {
+      // Job is in another status (e.g., generating, failed), submit as regular prompt
+      await submitPrompt(instruction);
+    }
+  }, [jobId, jobStatus?.status, submitPrompt]);
 
   // Action: Retry failed generation
   const retryGeneration = useCallback(async () => {
@@ -306,6 +438,23 @@ export function DashboardProvider({
   // Action: Clear error state
   const clearError = useCallback(() => {
     setError(null);
+  }, []);
+
+  // Action: Start a new session (clear current context for fresh generation)
+  const startNewSession = useCallback(() => {
+    setJobId(null);
+    setSessionId(null);
+    setError(null);
+    setLastPrompt('');
+    setIsSubmitting(false);
+    
+    // Add system message indicating new session
+    const systemMessage: ChatMessage = {
+      role: 'system',
+      content: 'Started new session. Ready for a fresh generation.',
+      timestamp: new Date(),
+    };
+    setMessages([systemMessage]); // Clear chat history and add new session message
   }, []);
 
   // When job completes or needs review, add version to history
@@ -325,6 +474,7 @@ export function DashboardProvider({
           score: jobStatus.compliance_score || 0,
           timestamp: jobStatus.updated_at,
           prompt: jobStatus.prompt,
+          violations: jobStatus.violations || [], // Store violations with the version
         };
         
         addVersion(newVersion);
@@ -344,15 +494,15 @@ export function DashboardProvider({
     }
   }, [jobStatus, versions, addVersion]);
 
-  // Combine state and actions
-  const contextValue: DashboardContextValue = {
-    // State
+  // Memoize state object to prevent unnecessary re-renders
+  const stateValue: DashboardState = useMemo(() => ({
     jobId,
     sessionId,
     brandId,
     status: jobStatus,
     isPolling,
     isSubmitting,
+    isTimedOut,
     currentImageUrl,
     complianceScore,
     violations,
@@ -363,19 +513,38 @@ export function DashboardProvider({
     messages,
     connectionStatus,
     error,
-    
-    // Actions
+  }), [
+    jobId, sessionId, brandId, jobStatus, isPolling, isSubmitting, isTimedOut,
+    currentImageUrl, complianceScore, violations, twinData, versions,
+    currentVersionIndex, currentVersion, messages, connectionStatus, error
+  ]);
+
+  // Memoize actions object - these callbacks are already memoized with useCallback,
+  // but we need to memoize the object itself to prevent re-renders
+  const actionsValue: DashboardActions = useMemo(() => ({
     submitPrompt,
     loadVersion,
     acceptCorrection,
+    requestTweak,
     retryGeneration,
     clearError,
-  };
+    startNewSession,
+  }), [submitPrompt, loadVersion, acceptCorrection, requestTweak, retryGeneration, clearError, startNewSession]);
+
+  // Combined context value for backward compatibility
+  const contextValue: DashboardContextValue = useMemo(() => ({
+    ...stateValue,
+    ...actionsValue,
+  }), [stateValue, actionsValue]);
 
   return (
-    <DashboardContext.Provider value={contextValue}>
-      {children}
-    </DashboardContext.Provider>
+    <DashboardStateContext.Provider value={stateValue}>
+      <DashboardActionsContext.Provider value={actionsValue}>
+        <DashboardContext.Provider value={contextValue}>
+          {children}
+        </DashboardContext.Provider>
+      </DashboardActionsContext.Provider>
+    </DashboardStateContext.Provider>
   );
 }
 
@@ -406,11 +575,62 @@ export function DashboardProvider({
  */
 export function useDashboard(): DashboardContextValue {
   const context = useContext(DashboardContext);
-  
+
   if (!context) {
     throw new Error('useDashboard must be used within a DashboardProvider');
   }
-  
+
+  return context;
+}
+
+/**
+ * useDashboardState Hook
+ *
+ * Access only dashboard state (no actions).
+ * Use this when your component only needs to read state.
+ * Components using this hook will re-render when state changes.
+ *
+ * @example
+ * ```tsx
+ * function StatusDisplay() {
+ *   const { status, complianceScore } = useDashboardState();
+ *   return <p>Score: {complianceScore}%</p>;
+ * }
+ * ```
+ */
+export function useDashboardState(): DashboardState {
+  const context = useContext(DashboardStateContext);
+
+  if (!context) {
+    throw new Error('useDashboardState must be used within a DashboardProvider');
+  }
+
+  return context;
+}
+
+/**
+ * useDashboardActions Hook
+ *
+ * Access only dashboard actions (no state).
+ * Use this when your component only needs to trigger actions.
+ * Components using this hook will NOT re-render when state changes,
+ * making them more performant.
+ *
+ * @example
+ * ```tsx
+ * function SubmitButton() {
+ *   const { submitPrompt } = useDashboardActions();
+ *   return <button onClick={() => submitPrompt('Generate a logo')}>Submit</button>;
+ * }
+ * ```
+ */
+export function useDashboardActions(): DashboardActions {
+  const context = useContext(DashboardActionsContext);
+
+  if (!context) {
+    throw new Error('useDashboardActions must be used within a DashboardProvider');
+  }
+
   return context;
 }
 

@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
-import { Send, Zap, AlertCircle, RotateCcw, Sparkles } from 'lucide-react';
+import { Send, Zap, AlertCircle, RotateCcw, Plus } from 'lucide-react';
 import { ChatMessage } from '../molecules/ChatMessage';
+import { BrandSelectorButton } from '../molecules/BrandSelectorButton';
+import { BrandSelectorModal } from './BrandSelectorModal';
 import { GradientText } from '../atoms/GradientText';
 import { GlassPanel } from '../atoms/GlassPanel';
 import { luminousTokens } from '../../tokens';
@@ -11,6 +13,7 @@ interface BrandGraphSummary {
   ruleCount: number;
   colorCount: number;
   archetype?: string;
+  logoUrl?: string;
 }
 
 interface DirectorProps {
@@ -29,6 +32,23 @@ interface DirectorProps {
   brandGraph?: BrandGraphSummary | null;
   /** Callback when Brand Graph indicator is clicked */
   onBrandGraphClick?: () => void;
+  /** Whether there's an existing image (enables "new session" button) */
+  hasExistingImage?: boolean;
+  /** Callback to start a new session */
+  onNewSession?: () => void;
+  /** Whether brands are still loading */
+  brandsLoading?: boolean;
+  /** Brand selection props */
+  availableBrands?: Array<{
+    id: string;
+    name: string;
+    colorCount?: number;
+    ruleCount?: number;
+    archetype?: string;
+  }>;
+  selectedBrandId?: string | null;
+  shouldShowBrandSelector?: boolean;
+  onSelectBrand?: (brandId: string) => void;
 }
 
 interface QuickAction {
@@ -82,9 +102,17 @@ export const Director = memo(function Director({
   onClearError,
   brandGraph = null,
   onBrandGraphClick,
+  hasExistingImage = false,
+  onNewSession,
+  brandsLoading = false,
+  availableBrands = [],
+  selectedBrandId = null,
+  shouldShowBrandSelector = false,
+  onSelectBrand,
 }: DirectorProps) {
   // sessionId available as _sessionId for future use
   const [inputValue, setInputValue] = useState('');
+  const [showBrandSelector, setShowBrandSelector] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +170,26 @@ export const Director = memo(function Director({
   const handleQuickAction = useCallback((action: QuickAction) => {
     setInputValue(action.prompt);
   }, []);
+
+  // Brand selector handlers
+  const handleBrandSelectorClick = useCallback(() => {
+    if (onBrandGraphClick && brandGraph) {
+      // If brand is selected, show brand details
+      onBrandGraphClick();
+    } else {
+      // If no brand selected or multiple brands, show selector
+      setShowBrandSelector(true);
+    }
+  }, [onBrandGraphClick, brandGraph]);
+
+  const handleBrandSelect = useCallback((brandId: string) => {
+    onSelectBrand?.(brandId);
+    setShowBrandSelector(false);
+  }, [onSelectBrand]);
+
+  const handleCloseBrandSelector = useCallback(() => {
+    setShowBrandSelector(false);
+  }, []);
   
   // Memoized keyboard handler
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -156,51 +204,48 @@ export const Director = memo(function Director({
   const isAtLimit = characterCount >= MAX_CHARACTERS;
 
   return (
+    <>
     <GlassPanel
-      className="h-full"
+      className="h-full overflow-hidden"
       spotlight={true}
       shimmer={false}
       data-testid="director"
     >
       <div className="h-full flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
-      {/* Brand Graph Indicator */}
-      {brandGraph && (
-        <button
-          onClick={onBrandGraphClick}
-          className="flex-shrink-0 flex items-center gap-3 border-b border-white/10 hover:bg-white/5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:ring-inset cursor-pointer"
-          style={{ padding: '12px 20px' }}
-          data-testid="brand-graph-indicator"
-          aria-label={`${brandGraph.name} Brand Graph. Click for details.`}
-        >
-          <Sparkles 
-            size={16} 
-            className={`flex-shrink-0 ${isGenerating ? 'animate-pulse' : ''}`}
-            style={{ color: luminousTokens.colors.accent.purple }}
+      {/* Header with Brand Selector and New Session Button */}
+      {(brandGraph || hasExistingImage || brandsLoading || shouldShowBrandSelector || availableBrands.length > 0) && (
+        <div className="flex-shrink-0 flex items-center border-b border-white/10" style={{ padding: '12px 20px' }}>
+          {/* Brand Selector Button */}
+          <BrandSelectorButton
+            brandGraph={brandGraph}
+            isGenerating={isGenerating}
+            onClick={handleBrandSelectorClick}
+            showSelectPrompt={shouldShowBrandSelector}
+            brandsLoading={brandsLoading}
           />
-          <span 
-            className="text-sm font-medium truncate"
-            style={{ color: luminousTokens.colors.text.high }}
-          >
-            {brandGraph.name}
-          </span>
-          <span 
-            className="text-[11px] font-mono px-2 py-1 rounded-full flex-shrink-0"
-            style={{ 
-              color: luminousTokens.colors.text.muted,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-            }}
-          >
-            {brandGraph.colorCount} colors{brandGraph.ruleCount > 0 ? ` · ${brandGraph.ruleCount} rules` : ''}
-          </span>
-          {brandGraph.archetype && (
-            <span 
-              className="text-[11px] ml-auto hidden md:inline flex-shrink-0"
-              style={{ color: luminousTokens.colors.text.muted }}
+          
+          {/* New Session Button - only show when there's an existing image */}
+          {hasExistingImage && onNewSession && (
+            <button
+              onClick={onNewSession}
+              disabled={isGenerating}
+              className="flex-shrink-0 w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-purple-500/30 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-purple-500 ml-2 group relative"
+              data-testid="new-session-button"
+              aria-label="Start new session"
+              title="Start new session"
             >
-              {brandGraph.archetype}
-            </span>
+              <Plus 
+                size={16} 
+                style={{ color: luminousTokens.colors.text.body }}
+                className="group-hover:text-purple-400 transition-colors"
+              />
+              {/* Tooltip */}
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs rounded bg-gray-900 text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                Start new session
+              </span>
+            </button>
           )}
-        </button>
+        </div>
       )}
 
       {/* Chat History - Scrollable */}
@@ -319,7 +364,7 @@ export const Director = memo(function Director({
       </div>
 
       {/* Input Field - Fixed height container */}
-      <form onSubmit={handleSubmit} className="flex-shrink-0 pb-4" style={{ paddingLeft: '24px', paddingRight: '24px' }}>
+      <form onSubmit={handleSubmit} className="flex-shrink-0" style={{ padding: '16px 24px 20px' }}>
         <div className="relative" style={{ height: '44px' }}>
           <input
             type="text"
@@ -376,6 +421,17 @@ export const Director = memo(function Director({
       </form>
       </div>
     </GlassPanel>
+
+    {/* Brand Selector Modal */}
+    <BrandSelectorModal
+      isOpen={showBrandSelector}
+      onClose={handleCloseBrandSelector}
+      brands={availableBrands}
+      selectedBrandId={selectedBrandId}
+      onSelectBrand={handleBrandSelect}
+      loading={brandsLoading}
+    />
+  </>
   );
 });
 

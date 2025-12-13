@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobius API Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        a { color: #635BFF; }
+    </style>
+</head>
+<body>
+    <h1>Mobius API</h1>
+    <div class="card">
+        <h2>API Documentation</h2>
+        <p>Visit <a href="/v1/docs">/v1/docs</a> for the interactive API documentation.</p>
+    </div>
+    <div class="card">
+        <h2>Endpoints</h2>
+        <ul>
+            <li><code>POST /v1/generate</code> - Generate brand-compliant assets</li>
+            <li><code>GET /v1/jobs/{job_id}</code> - Check job status</li>
+            <li><code>GET /v1/brands</code> - List brands</li>
+            <li><code>POST /v1/brands/ingest</code> - Ingest brand guidelines</li>
+        </ul>
+    </div>
+</body>
+</html>

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { luminousTokens } from '../../tokens';
 
 interface VersionThumbnailProps {
@@ -21,7 +22,7 @@ interface VersionThumbnailProps {
  * @param active - Whether this version is currently active
  * @param onClick - Callback triggered when thumbnail is clicked
  */
-export function VersionThumbnail({
+export const VersionThumbnail = memo(function VersionThumbnail({
   imageUrl,
   score,
   timestamp,
@@ -133,4 +134,4 @@ export function VersionThumbnail({
       }} />
     </button>
   );
-}
+});

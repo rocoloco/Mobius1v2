@@ -257,8 +257,278 @@ Return strict JSON matching the schema. Be decisive - make your best inference e
         return {"error": f"Vision analysis failed: {str(e)}", "url": url, "confidence": 0.0}
 
 
+# Generation worker function - runs in separate container for long-running generation workflows
+@app.function(image=image, secrets=secrets, timeout=600)  # 10 min timeout for generation
+def run_generation_worker(job_id: str, brand_id: str, prompt: str, template_id: str = None, generation_params: dict = None):
+    """
+    Background worker for image generation workflow.
+    
+    This function runs in a separate Modal container, independent of the HTTP request.
+    It executes the full generation workflow (generate → audit → finalize) and updates
+    job status in Supabase throughout the process.
+    
+    Args:
+        job_id: Unique job identifier
+        brand_id: Brand ID to generate for
+        prompt: User's generation prompt
+        template_id: Optional template ID
+        generation_params: Optional additional generation parameters
+    
+    Returns:
+        dict with final job status and results
+    """
+    import sys
+    sys.path.insert(0, "/root")
+    
+    import asyncio
+    import structlog
+    from datetime import datetime, timezone
+    
+    logger = structlog.get_logger()
+    
+    logger.info(
+        "generation_worker_started",
+        job_id=job_id,
+        brand_id=brand_id,
+        prompt=prompt[:100] if prompt else None,
+    )
+    
+    async def run_workflow():
+        from mobius.storage.jobs import JobStorage
+        from mobius.graphs.generation import run_generation_workflow
+        
+        job_storage = JobStorage()
+        
+        try:
+            # Update job to processing state
+            await job_storage.update_job(job_id, {
+                "status": "processing",
+                "progress": 10.0,
+                "state": {
+                    "prompt": prompt,
+                    "brand_id": brand_id,
+                    "template_id": template_id,
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                }
+            })
+            
+            logger.info("generation_worker_processing", job_id=job_id)
+            
+            # Run the generation workflow
+            final_state = await run_generation_workflow(
+                brand_id=brand_id,
+                prompt=prompt,
+                job_id=job_id,
+                template_id=template_id,
+                **(generation_params or {})
+            )
+            
+            # Extract results
+            image_url = final_state.get("current_image_url") or final_state.get("image_uri")
+            status = final_state.get("status", "completed")
+            
+            # Debug logging to diagnose image URL issues
+            logger.info(
+                "final_state_debug",
+                job_id=job_id,
+                status=status,
+                current_image_url=final_state.get("current_image_url", "NOT_FOUND")[:100] if final_state.get("current_image_url") else "NOT_FOUND",
+                image_uri=final_state.get("image_uri", "NOT_FOUND")[:100] if final_state.get("image_uri") else "NOT_FOUND",
+                extracted_image_url=image_url[:100] if image_url else "NONE",
+                final_state_keys=list(final_state.keys()),
+            )
+            
+            # Update job with final state
+            # Set progress based on status - needs_review is 75%, completed is 100%
+            progress = 75.0 if status == "needs_review" else 100.0
+            
+            await job_storage.update_job(job_id, {
+                "status": status,
+                "progress": progress,
+                "state": {
+                    "prompt": prompt,
+                    "brand_id": brand_id,
+                    "template_id": template_id,
+                    "compliance_scores": final_state.get("compliance_scores", []),
+                    "is_approved": final_state.get("is_approved", False),
+                    "attempt_count": final_state.get("attempt_count", 0),
+                    "image_uri": image_url,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            })
+            
+            logger.info(
+                "generation_worker_completed",
+                job_id=job_id,
+                status=status,
+                has_image=bool(image_url),
+            )
+            
+            return {
+                "job_id": job_id,
+                "status": status,
+                "image_url": image_url,
+                "is_approved": final_state.get("is_approved", False),
+            }
+            
+        except Exception as e:
+            logger.error(
+                "generation_worker_failed",
+                job_id=job_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            
+            # Update job with error status
+            try:
+                await job_storage.update_job(job_id, {
+                    "status": "failed",
+                    "progress": 0.0,
+                    "state": {
+                        "prompt": prompt,
+                        "brand_id": brand_id,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "failed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                })
+            except Exception as update_error:
+                logger.error("failed_to_update_job_status", job_id=job_id, error=str(update_error))
+            
+            return {
+                "job_id": job_id,
+                "status": "failed",
+                "error": str(e),
+            }
+    
+    # Run the async workflow
+    return asyncio.run(run_workflow())
+
+
+# Resume workflow worker - runs in separate container for tweak/regenerate operations
+@app.function(image=image, secrets=secrets, timeout=600)  # 10 min timeout
+def run_resume_workflow_worker(job_id: str, resume_state: dict):
+    """
+    Background worker for resuming workflow after user review decision.
+    
+    This function runs in a separate Modal container, independent of the HTTP request.
+    It resumes the workflow from the current state (for tweak/regenerate operations).
+    
+    Args:
+        job_id: Unique job identifier
+        resume_state: The job state to resume from (includes prompt, brand_id, previous image, etc.)
+    
+    Returns:
+        dict with final job status and results
+    """
+    import sys
+    sys.path.insert(0, "/root")
+    
+    import asyncio
+    import structlog
+    from datetime import datetime, timezone
+    
+    logger = structlog.get_logger()
+    
+    logger.info(
+        "resume_workflow_worker_started",
+        job_id=job_id,
+        is_tweak=resume_state.get("is_tweak", False),
+        has_previous_image=bool(resume_state.get("current_image_url")),
+    )
+    
+    async def run_workflow():
+        from mobius.storage.jobs import JobStorage
+        from mobius.graphs.generation import create_generation_workflow
+        
+        job_storage = JobStorage()
+        
+        try:
+            # Update job to processing state
+            await job_storage.update_job(job_id, {
+                "status": "processing",
+                "progress": 10.0,
+            })
+            
+            logger.info("resume_workflow_worker_processing", job_id=job_id)
+            
+            # Create and run workflow
+            workflow = create_generation_workflow()
+            final_state = await asyncio.wait_for(
+                asyncio.shield(workflow.ainvoke(resume_state)),
+                timeout=300.0  # 5 minutes
+            )
+            
+            # Extract results
+            image_url = final_state.get("current_image_url") or final_state.get("image_uri")
+            status = final_state.get("status", "completed")
+            
+            # Set progress based on status
+            progress = 75.0 if status == "needs_review" else 100.0
+            
+            # Update job with final state
+            await job_storage.update_job(job_id, {
+                "status": status,
+                "progress": progress,
+                "state": {
+                    **resume_state,
+                    "compliance_scores": final_state.get("compliance_scores", []),
+                    "is_approved": final_state.get("is_approved", False),
+                    "attempt_count": final_state.get("attempt_count", 0),
+                    "image_uri": image_url,
+                    "current_image_url": image_url,
+                    "is_tweak": False,  # Clear tweak flag after completion
+                }
+            })
+            
+            logger.info(
+                "resume_workflow_worker_completed",
+                job_id=job_id,
+                status=status,
+                has_image=bool(image_url),
+            )
+            
+            return {
+                "job_id": job_id,
+                "status": status,
+                "image_url": image_url,
+            }
+            
+        except Exception as e:
+            logger.error(
+                "resume_workflow_worker_failed",
+                job_id=job_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            
+            # Update job with error status
+            try:
+                await job_storage.update_job(job_id, {
+                    "status": "failed",
+                    "progress": 0.0,
+                    "state": {
+                        **resume_state,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "failed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                })
+            except Exception as update_error:
+                logger.error("failed_to_update_job_status", job_id=job_id, error=str(update_error))
+            
+            return {
+                "job_id": job_id,
+                "status": "failed",
+                "error": str(e),
+            }
+    
+    # Run the async workflow
+    return asyncio.run(run_workflow())
+
+
 # Mount FastAPI app to Modal
-@app.function(image=image, secrets=secrets, timeout=180)  # 3min timeout for long-running generation workflows
+@app.function(image=image, secrets=secrets, timeout=180)  # 3min timeout for HTTP requests
 @modal.asgi_app()
 def fastapi_app():
     """Main ASGI app with all routes."""
@@ -281,18 +551,22 @@ def fastapi_app():
         allow_headers=["*"],
         expose_headers=["*"],
     )
-    
+
+    # Module-level logger for all routes (avoids per-request instantiation overhead)
+    import structlog
+    logger = structlog.get_logger()
+
+    # Import error handling decorator to eliminate duplicate try-except blocks
+    from mobius.api.errors import handle_api_errors
+
     # Brand Management Routes
-    
+
     @web_app.post("/v1/brands/ingest")
     async def ingest_brand(request: Request):
         """Upload and ingest brand guidelines PDF."""
         from mobius.api.routes import ingest_brand_handler
         from mobius.api.errors import MobiusError, ValidationError
         from fastapi import UploadFile, File, Form
-        import structlog
-        
-        logger = structlog.get_logger()
         
         try:
             # Check content type to determine how to parse the request
@@ -432,10 +706,7 @@ def fastapi_app():
     async def scan_brand_from_url(request: Request):
         """Scan a website URL to extract brand identity using vision AI."""
         from mobius.api.errors import MobiusError, ValidationError
-        import structlog
         import modal
-        
-        logger = structlog.get_logger()
         
         try:
             data = await request.json()
@@ -487,9 +758,6 @@ def fastapi_app():
         """List all brands for an organization."""
         from mobius.api.routes import list_brands_handler
         from mobius.api.errors import MobiusError, ValidationError
-        import structlog
-        
-        logger = structlog.get_logger()
         
         try:
             # For now, use a default organization_id if not provided
@@ -525,131 +793,147 @@ def fastapi_app():
             )
     
     @web_app.get("/v1/brands/{brand_id}")
+    @handle_api_errors(logger=logger)
     async def get_brand(brand_id: str):
         """Get detailed brand information."""
         from mobius.api.routes import get_brand_handler
-        from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
-        try:
-            result = await get_brand_handler(brand_id=brand_id)
-            return result
-        except MobiusError as e:
-            logger.error("endpoint_error", error=str(e))
-            return JSONResponse(
-                status_code=e.status_code,
-                content={"error": e.error_response.model_dump()}
-            )
-        except Exception as e:
-            logger.error("unexpected_error", error=str(e))
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": {
-                        "code": "INTERNAL_ERROR",
-                        "message": "An unexpected error occurred",
-                        "details": {"error": str(e)},
-                    }
-                }
-            )
+        result = await get_brand_handler(brand_id=brand_id)
+        return result
     
     @web_app.patch("/v1/brands/{brand_id}")
+    @handle_api_errors(logger=logger)
     async def update_brand(brand_id: str, request: Request):
         """Update brand metadata."""
         from mobius.api.routes import update_brand_handler
         from mobius.api.schemas import UpdateBrandRequest
-        from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
-        try:
-            data = await request.json()
-            updates = UpdateBrandRequest(**data.get("updates", {}))
-            result = await update_brand_handler(brand_id=brand_id, updates=updates)
-            return result
-        except MobiusError as e:
-            logger.error("endpoint_error", error=str(e))
-            return JSONResponse(
-                status_code=e.status_code,
-                content={"error": e.error_response.model_dump()}
-            )
-        except Exception as e:
-            logger.error("unexpected_error", error=str(e))
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": {
-                        "code": "INTERNAL_ERROR",
-                        "message": "An unexpected error occurred",
-                        "details": {"error": str(e)},
-                    }
-                }
-            )
-    
+        data = await request.json()
+        updates = UpdateBrandRequest(**data.get("updates", {}))
+        result = await update_brand_handler(brand_id=brand_id, updates=updates)
+        return result
+
     @web_app.delete("/v1/brands/{brand_id}")
+    @handle_api_errors(logger=logger)
     async def delete_brand(brand_id: str):
         """Soft delete a brand."""
         from mobius.api.routes import delete_brand_handler
-        from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
-        try:
-            result = await delete_brand_handler(brand_id=brand_id)
-            return result
-        except MobiusError as e:
-            logger.error("endpoint_error", error=str(e))
-            return JSONResponse(
-                status_code=e.status_code,
-                content={"error": e.error_response.model_dump()}
-            )
-        except Exception as e:
-            logger.error("unexpected_error", error=str(e))
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": {
-                        "code": "INTERNAL_ERROR",
-                        "message": "An unexpected error occurred",
-                        "details": {"error": str(e)},
-                    }
-                }
-            )
+        result = await delete_brand_handler(brand_id=brand_id)
+        return result
     
     # Generation Routes
     
     @web_app.post("/v1/generate")
     async def generate(request: Request):
-        """Generate brand-compliant asset."""
-        from mobius.api.routes import generate_handler
-        from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
+        """Generate brand-compliant asset using Modal background worker."""
+        from mobius.api.errors import MobiusError, ValidationError
+        from mobius.storage.jobs import JobStorage
+        from mobius.storage.brands import BrandStorage
+        from mobius.api.utils import generate_request_id
+        import uuid
+        from datetime import datetime, timezone
+
+        request_id = generate_request_id()
         
         try:
             data = await request.json()
-            result = await generate_handler(
-                brand_id=data.get("brand_id"),
-                prompt=data.get("prompt"),
-                template_id=data.get("template_id"),
-                webhook_url=data.get("webhook_url"),
-                async_mode=data.get("async_mode", False),
-                idempotency_key=data.get("idempotency_key"),
+            brand_id = data.get("brand_id")
+            prompt = data.get("prompt")
+            template_id = data.get("template_id")
+            async_mode = data.get("async_mode", True)  # Default to async for Modal
+            idempotency_key = data.get("idempotency_key")
+            generation_params = data.get("generation_params", {})
+            
+            # Validate required fields
+            if not brand_id:
+                raise ValidationError(
+                    code="MISSING_BRAND_ID",
+                    message="brand_id is required",
+                    request_id=request_id,
+                )
+            
+            if not prompt:
+                raise ValidationError(
+                    code="MISSING_PROMPT",
+                    message="prompt is required",
+                    request_id=request_id,
+                )
+            
+            # Verify brand exists
+            brand_storage = BrandStorage()
+            brand = await brand_storage.get_brand(brand_id)
+            if not brand:
+                raise ValidationError(
+                    code="BRAND_NOT_FOUND",
+                    message=f"Brand {brand_id} not found",
+                    request_id=request_id,
+                )
+            
+            logger.info(
+                "generation_request_received",
+                request_id=request_id,
+                brand_id=brand_id,
+                prompt=prompt[:100] if prompt else None,
+                async_mode=async_mode,
             )
-            return result
+            
+            # Create job record
+            job_id = str(uuid.uuid4())
+            job_storage = JobStorage()
+            
+            from mobius.models.job import Job
+            job = Job(
+                job_id=job_id,
+                brand_id=brand_id,
+                status="pending",
+                progress=0.0,
+                state={
+                    "prompt": prompt,
+                    "brand_id": brand_id,
+                    "template_id": template_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                idempotency_key=idempotency_key,
+            )
+            await job_storage.create_job(job)
+            
+            logger.info(
+                "job_created",
+                request_id=request_id,
+                job_id=job_id,
+                brand_id=brand_id,
+            )
+            
+            # Spawn background worker using Modal's spawn()
+            # This runs in a separate container with its own 10-minute timeout
+            run_generation_worker.spawn(
+                job_id=job_id,
+                brand_id=brand_id,
+                prompt=prompt,
+                template_id=template_id,
+                generation_params=generation_params,
+            )
+            
+            logger.info(
+                "generation_worker_spawned",
+                request_id=request_id,
+                job_id=job_id,
+            )
+            
+            # Return immediately with job_id
+            return {
+                "job_id": job_id,
+                "status": "pending",
+                "message": "Generation started. Poll /v1/jobs/{job_id} for status.",
+                "request_id": request_id,
+            }
+            
         except MobiusError as e:
-            logger.error("endpoint_error", error=str(e))
+            logger.error("endpoint_error", error=str(e), request_id=request_id)
             return JSONResponse(
                 status_code=e.status_code,
                 content={"error": e.error_response.model_dump()}
             )
         except Exception as e:
-            logger.error("unexpected_error", error=str(e))
+            logger.error("unexpected_error", error=str(e), request_id=request_id)
             return JSONResponse(
                 status_code=500,
                 content={
@@ -657,6 +941,7 @@ def fastapi_app():
                         "code": "INTERNAL_ERROR",
                         "message": "An unexpected error occurred",
                         "details": {"error": str(e)},
+                        "request_id": request_id,
                     }
                 }
             )
@@ -668,10 +953,6 @@ def fastapi_app():
         """Get job status and results."""
         from mobius.api.routes import get_job_status_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await get_job_status_handler(job_id=job_id)
             return result
@@ -699,10 +980,6 @@ def fastapi_app():
         """Cancel a running job."""
         from mobius.api.routes import cancel_job_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await cancel_job_handler(job_id=job_id)
             return result
@@ -727,24 +1004,176 @@ def fastapi_app():
     
     @web_app.post("/v1/jobs/{job_id}/review")
     async def review_job(job_id: str, request: Request):
-        """Submit review decision for jobs in needs_review status."""
-        from mobius.api.routes import review_job_handler
-        from mobius.api.errors import MobiusError
-        import structlog
+        """Submit review decision for jobs in needs_review status.
         
-        logger = structlog.get_logger()
-        
+        For tweak/regenerate decisions, spawns a background worker to run the workflow
+        asynchronously, returning immediately so the frontend can poll for updates.
+        """
+        from mobius.api.errors import MobiusError, ValidationError, NotFoundError
+        from mobius.storage.jobs import JobStorage
+        from mobius.api.utils import generate_request_id
+
+        request_id = generate_request_id()
+
         try:
             body = await request.json()
             decision = body.get("decision")
             tweak_instruction = body.get("tweak_instruction")
             
-            result = await review_job_handler(
+            logger.info(
+                "review_job_request",
+                request_id=request_id,
                 job_id=job_id,
-                decision=decision,
-                tweak_instruction=tweak_instruction
+                decision=decision
             )
-            return result
+            
+            # Validate decision
+            if decision not in ["approve", "tweak", "regenerate"]:
+                raise ValidationError(
+                    code="INVALID_DECISION",
+                    message=f"Invalid decision '{decision}'. Must be 'approve', 'tweak', or 'regenerate'",
+                    request_id=request_id
+                )
+            
+            # Load job
+            job_storage = JobStorage()
+            job = await job_storage.get_job(job_id)
+            
+            if not job:
+                raise NotFoundError(resource="job", resource_id=job_id, request_id=request_id)
+            
+            if job.status != "needs_review":
+                raise ValidationError(
+                    code="JOB_NOT_IN_REVIEW",
+                    message=f"Job is not in needs_review status (current: {job.status})",
+                    request_id=request_id
+                )
+            
+            state = job.state or {}
+            state["user_decision"] = decision
+            
+            if decision == "approve":
+                # Simple approval - just update status
+                state["is_approved"] = True
+                state["approval_override"] = True
+                await job_storage.update_job(job_id, {
+                    "status": "completed",
+                    "progress": 100.0,
+                    "state": state
+                })
+                
+                return {
+                    "job_id": job_id,
+                    "decision": decision,
+                    "status": "completed",
+                    "message": "Job approved and completed",
+                    "request_id": request_id
+                }
+            
+            elif decision == "tweak":
+                if not tweak_instruction:
+                    raise ValidationError(
+                        code="TWEAK_INSTRUCTION_REQUIRED",
+                        message="tweak_instruction is required when decision is 'tweak'",
+                        request_id=request_id
+                    )
+                
+                # Build targeted correction prompt from audit violations
+                compliance_scores = state.get("compliance_scores", [])
+                violation_fixes = []
+                
+                if compliance_scores:
+                    latest_audit = compliance_scores[-1]
+                    categories = latest_audit.get("categories", [])
+                    
+                    for category in categories:
+                        if isinstance(category, dict):
+                            cat_violations = category.get("violations", [])
+                            for v in cat_violations:
+                                if isinstance(v, dict):
+                                    severity = v.get("severity", "medium")
+                                    if severity in ["critical", "high"]:
+                                        fix = v.get("fix_suggestion") or v.get("description", "")
+                                        if fix:
+                                            violation_fixes.append(f"- {fix}")
+                
+                # Build correction prompt
+                if violation_fixes:
+                    correction_prompt = (
+                        f"Looking at the image, please make these specific fixes:\n"
+                        f"{chr(10).join(violation_fixes)}\n\n"
+                        f"User's additional instruction: {tweak_instruction}\n\n"
+                        f"IMPORTANT: Edit the existing image, do not create a new one from scratch. "
+                        f"Keep all elements that passed compliance and only fix the violations listed above."
+                    )
+                else:
+                    correction_prompt = (
+                        f"Looking at the image, please make this modification: {tweak_instruction}\n\n"
+                        f"IMPORTANT: Edit the existing image, do not create a new one from scratch."
+                    )
+                
+                # Set up state for tweak
+                state["prompt"] = correction_prompt
+                previous_image = state.get("image_uri") or state.get("current_image_url")
+                if previous_image:
+                    state["current_image_url"] = previous_image
+                state["is_tweak"] = True
+                state["user_tweak_instruction"] = tweak_instruction
+                
+                logger.info(
+                    "job_tweak_prepared",
+                    request_id=request_id,
+                    job_id=job_id,
+                    violation_count=len(violation_fixes),
+                    has_previous_image=bool(previous_image)
+                )
+            
+            elif decision == "regenerate":
+                # Reset state for fresh generation
+                state["session_id"] = None
+                state["attempt_count"] = 0
+                state["current_image_url"] = None
+                state["audit_history"] = []
+                state["is_tweak"] = False
+            
+            # Update job to processing and prepare resume state
+            state["needs_review"] = False
+            state["review_requested_at"] = None
+            
+            await job_storage.update_job(job_id, {
+                "status": "processing",
+                "progress": 10.0,
+                "state": state
+            })
+            
+            # Build resume state for worker
+            resume_state = {
+                **state,
+                "brand_id": job.brand_id,
+                "job_id": job_id,
+            }
+            
+            # Spawn background worker - returns immediately
+            run_resume_workflow_worker.spawn(
+                job_id=job_id,
+                resume_state=resume_state
+            )
+            
+            logger.info(
+                "resume_workflow_worker_spawned",
+                request_id=request_id,
+                job_id=job_id,
+                decision=decision
+            )
+            
+            return {
+                "job_id": job_id,
+                "decision": decision,
+                "status": "processing",
+                "message": f"Job resumed with decision: {decision}. Poll /v1/jobs/{job_id} for status.",
+                "request_id": request_id
+            }
+            
         except MobiusError as e:
             logger.error("endpoint_error", error=str(e))
             return JSONResponse(
@@ -769,10 +1198,6 @@ def fastapi_app():
         """Apply multi-turn tweak to a completed or needs_review job."""
         from mobius.api.routes import tweak_completed_job_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             body = await request.json()
             tweak_instruction = body.get("tweak_instruction")
@@ -808,10 +1233,6 @@ def fastapi_app():
         """Save an asset as a reusable template."""
         from mobius.api.routes import save_template_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             data = await request.json()
             result = await save_template_handler(
@@ -844,10 +1265,6 @@ def fastapi_app():
         """List all templates for a brand."""
         from mobius.api.routes import list_templates_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await list_templates_handler(brand_id=brand_id, limit=limit)
             return result
@@ -875,10 +1292,6 @@ def fastapi_app():
         """Get detailed template information."""
         from mobius.api.routes import get_template_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await get_template_handler(template_id=template_id)
             return result
@@ -906,10 +1319,6 @@ def fastapi_app():
         """Delete a template."""
         from mobius.api.routes import delete_template_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await delete_template_handler(template_id=template_id)
             return result
@@ -939,10 +1348,6 @@ def fastapi_app():
         """Submit feedback for an asset."""
         from mobius.api.routes import submit_feedback_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             data = await request.json()
             result = await submit_feedback_handler(
@@ -975,10 +1380,6 @@ def fastapi_app():
         """Get feedback statistics for a brand."""
         from mobius.api.routes import get_feedback_stats_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await get_feedback_stats_handler(brand_id=brand_id)
             return result
@@ -1008,10 +1409,6 @@ def fastapi_app():
         """Health check endpoint."""
         from mobius.api.routes import health_check_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await health_check_handler()
             return result
@@ -1039,10 +1436,6 @@ def fastapi_app():
         """Get OpenAPI documentation."""
         from mobius.api.routes import get_api_docs_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
-        
         try:
             result = await get_api_docs_handler()
             return result
@@ -1072,10 +1465,6 @@ def fastapi_app():
         """Graph database health check endpoint."""
         from mobius.api.routes import graph_health_check_handler
         from mobius.api.errors import MobiusError
-        import structlog
-
-        logger = structlog.get_logger()
-
         try:
             result = await graph_health_check_handler()
             return result
@@ -1103,10 +1492,6 @@ def fastapi_app():
         """Get graph relationships for a brand."""
         from mobius.api.routes import get_brand_graph_handler
         from mobius.api.errors import MobiusError
-        import structlog
-
-        logger = structlog.get_logger()
-
         try:
             result = await get_brand_graph_handler(brand_id=brand_id)
             return result
@@ -1134,10 +1519,6 @@ def fastapi_app():
         """Find brands with similar color palettes."""
         from mobius.api.routes import find_similar_brands_handler
         from mobius.api.errors import MobiusError
-        import structlog
-
-        logger = structlog.get_logger()
-
         try:
             result = await find_similar_brands_handler(
                 brand_id=brand_id,
@@ -1168,10 +1549,6 @@ def fastapi_app():
         """Find all brands using a specific color."""
         from mobius.api.routes import find_color_relationships_handler
         from mobius.api.errors import MobiusError
-        import structlog
-
-        logger = structlog.get_logger()
-
         try:
             result = await find_color_relationships_handler(hex=hex)
             return result
@@ -1199,10 +1576,6 @@ def fastapi_app():
         """Find colors that pair well with a given color (MOAT feature)."""
         from mobius.api.routes import find_color_pairings_handler
         from mobius.api.errors import MobiusError
-        import structlog
-
-        logger = structlog.get_logger()
-
         try:
             result = await find_color_pairings_handler(hex=hex, min_samples=min_samples)
             return result
@@ -1260,9 +1633,7 @@ def fastapi_app():
         """Legacy Phase 1 endpoint for backward compatibility."""
         from mobius.api.routes import generate_handler
         from mobius.api.errors import MobiusError
-        import structlog
-        
-        logger = structlog.get_logger()
+
         logger.warning(
             "legacy_endpoint_used",
             message="Please migrate to /v1/generate",

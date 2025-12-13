@@ -63,7 +63,8 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
         return {
             "prompt": correction_prompt,
             "user_tweak_instruction": None,  # Clear after use
-            "status": "correcting"
+            "status": "correcting",
+            "original_had_logos": state.get("original_had_logos", False)  # Preserve logo config
         }
 
     # Check if we have audit history for AI-based corrections
@@ -152,7 +153,8 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
 
         return {
             "prompt": correction_prompt,
-            "status": "correcting"
+            "status": "correcting",
+            "original_had_logos": state.get("original_had_logos", False)  # Preserve logo config
         }
     else:
         logger.info(
@@ -162,5 +164,6 @@ async def correct_node(state: JobState) -> Dict[str, Any]:
         )
 
         return {
-            "status": "correcting"
+            "status": "correcting",
+            "original_had_logos": state.get("original_had_logos", False)  # Preserve logo config
         }

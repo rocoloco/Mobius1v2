@@ -18,12 +18,17 @@ from mobius.constants import MAX_PDF_SIZE_BYTES, ALLOWED_PDF_MIME_TYPES
 from mobius.storage.brands import BrandStorage
 from mobius.storage.jobs import JobStorage
 from mobius.storage.database import get_supabase_client
-from typing import Optional
+from typing import Optional, Set
+import asyncio
 import structlog
 from datetime import datetime, timezone
 import uuid
 
 logger = structlog.get_logger()
+
+# Module-level set to keep references to background tasks
+# This prevents them from being garbage collected before completion
+_background_tasks: Set[asyncio.Task] = set()
 
 
 async def ingest_brand_handler(
@@ -424,39 +429,51 @@ async def list_brands_handler(
         storage = BrandStorage()
         brands = await storage.list_brands(organization_id, search, limit)
 
-        # Get statistics for each brand
+        # Get statistics for all brands in a single query (fixes N+1)
+        brand_ids = [brand.brand_id for brand in brands]
+
+        # Single query to fetch all asset stats
+        client = get_supabase_client()
+        assets_result = (
+            client.table("assets")
+            .select("brand_id, compliance_score, created_at")
+            .in_("brand_id", brand_ids)
+            .execute()
+        ) if brand_ids else type('obj', (object,), {'data': []})()
+
+        # Group assets by brand_id for O(1) lookup
+        assets_by_brand: dict[str, list[dict]] = {}
+        for asset in assets_result.data:
+            bid = asset.get("brand_id")
+            if bid:
+                if bid not in assets_by_brand:
+                    assets_by_brand[bid] = []
+                assets_by_brand[bid].append(asset)
+
+        # Build brand items with pre-fetched stats
         brand_items = []
         for brand in brands:
-            # Get asset count and avg compliance score
-            client = get_supabase_client()
-            assets_result = (
-                client.table("assets")
-                .select("compliance_score, created_at")
-                .eq("brand_id", brand.brand_id)
-                .execute()
-            )
-
-            asset_count = len(assets_result.data)
+            brand_assets = assets_by_brand.get(brand.brand_id, [])
+            asset_count = len(brand_assets)
             avg_score = 0.0
             last_activity = brand.updated_at
 
             if asset_count > 0:
                 scores = [
                     a["compliance_score"]
-                    for a in assets_result.data
+                    for a in brand_assets
                     if a.get("compliance_score") is not None
                 ]
                 avg_score = sum(scores) / len(scores) if scores else 0.0
 
                 # Get most recent activity
-                if assets_result.data:
-                    latest_asset = max(
-                        assets_result.data,
-                        key=lambda a: a.get("created_at", ""),
-                    )
-                    last_activity = datetime.fromisoformat(
-                        latest_asset["created_at"].replace("Z", "+00:00")
-                    )
+                latest_asset = max(
+                    brand_assets,
+                    key=lambda a: a.get("created_at", ""),
+                )
+                last_activity = datetime.fromisoformat(
+                    latest_asset["created_at"].replace("Z", "+00:00")
+                )
 
             brand_items.append(
                 BrandListItem(
@@ -1186,6 +1203,7 @@ async def generate_handler(
             progress=0.0,
             state={
                 "prompt": prompt,
+                "brand_id": brand_id,  # Include brand_id in state for workflow
                 "generation_params": generation_params,
                 "template_id": template_id,
             },
@@ -1221,16 +1239,32 @@ async def generate_handler(
             # Import asyncio to create background task
             import asyncio
             
-            # Define background task
+            # Define background task with better error handling
             async def run_workflow_background():
                 # Create new JobStorage instance for background task
                 bg_job_storage = JobStorage()
                 
                 try:
-                    final_state = await run_generation_workflow(
-                        brand_id=brand_id,
-                        prompt=prompt,
-                        job_id=job_id,
+                    # Update job to processing state
+                    await bg_job_storage.update_job(job_id, {
+                        "status": "processing",
+                        "progress": 10.0,
+                        "state": {
+                            "prompt": prompt,
+                            "brand_id": brand_id,
+                            "generation_params": generation_params,
+                            "template_id": template_id,
+                            "started_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    })
+                    
+                    # Run workflow with proper cancellation handling
+                    final_state = await asyncio.shield(
+                        run_generation_workflow(
+                            brand_id=brand_id,
+                            prompt=prompt,
+                            job_id=job_id,
+                        )
                     )
                     
                     # Update job with final state
@@ -1241,12 +1275,15 @@ async def generate_handler(
                         "progress": 100.0,
                         "state": {
                             "prompt": prompt,
+                            "brand_id": brand_id,
                             "generation_params": generation_params,
                             "template_id": template_id,
                             "compliance_scores": final_state.get("compliance_scores", []),
                             "is_approved": final_state.get("is_approved", False),
                             "attempt_count": final_state.get("attempt_count", 0),
                             "image_uri": image_url,
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
+                            "original_had_logos": final_state.get("original_had_logos"),  # CRITICAL: Preserve logo configuration for tweaks
                         },
                     }
                     
@@ -1258,25 +1295,81 @@ async def generate_handler(
                         job_id=job_id,
                         status=updates["status"]
                     )
+                    
+                    # Small delay to allow proper cleanup of async generators
+                    await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "async_generation_cancelled",
+                        request_id=request_id,
+                        job_id=job_id
+                    )
+                    # Mark as failed due to cancellation
+                    try:
+                        await bg_job_storage.update_job(job_id, {
+                            "status": "failed",
+                            "progress": 0.0,
+                            "state": {
+                                "prompt": prompt,
+                                "brand_id": brand_id,
+                                "error": "Task was cancelled",
+                                "failed_at": datetime.now(timezone.utc).isoformat(),
+                            }
+                        })
+                    except Exception as update_error:
+                        logger.error("Failed to update cancelled job", job_id=job_id, error=str(update_error))
+                    raise
                 except Exception as e:
                     logger.error(
                         "async_generation_failed",
                         request_id=request_id,
                         job_id=job_id,
-                        error=str(e)
+                        error=str(e),
+                        error_type=type(e).__name__
                     )
-                    # Update job with error status
-                    await bg_job_storage.update_job(job_id, {
-                        "status": "failed",
-                        "progress": 0.0,
-                        "state": {
-                            "prompt": prompt,
-                            "error": str(e)
-                        }
-                    })
+                    # Update job with error status - use try/except to ensure this always works
+                    try:
+                        await bg_job_storage.update_job(job_id, {
+                            "status": "failed",
+                            "progress": 0.0,
+                            "state": {
+                                "prompt": prompt,
+                                "brand_id": brand_id,
+                                "error": str(e),
+                                "error_type": type(e).__name__,
+                                "failed_at": datetime.now(timezone.utc).isoformat(),
+                            }
+                        })
+                    except Exception as update_error:
+                        logger.error("Failed to update failed job", job_id=job_id, error=str(update_error))
+                        # Last resort - try to at least mark as failed with minimal data
+                        try:
+                            await bg_job_storage.update_job(job_id, {"status": "failed"})
+                        except:
+                            pass  # Give up if we can't even do this
             
-            # Create background task
-            asyncio.create_task(run_workflow_background())
+            # Create background task with proper exception handling
+            task = asyncio.create_task(run_workflow_background(), name=f"generation_{job_id}")
+            
+            # Add task to registry to prevent garbage collection
+            _background_tasks.add(task)
+            
+            # Add done callback to log task completion/failure and remove from registry
+            def task_done_callback(task_result):
+                # Remove from registry when done
+                _background_tasks.discard(task_result)
+                
+                if task_result.cancelled():
+                    logger.warning("Background task was cancelled", job_id=job_id)
+                elif task_result.exception():
+                    logger.error("Background task failed with unhandled exception", 
+                               job_id=job_id, error=str(task_result.exception()))
+                else:
+                    logger.info("Background task completed successfully", job_id=job_id)
+            
+            task.add_done_callback(task_done_callback)
+            
+            logger.info("background_task_registered", job_id=job_id, active_tasks=len(_background_tasks))
             
             # Return immediately
             return GenerateResponse(
@@ -1309,6 +1402,7 @@ async def generate_handler(
                     "is_approved": final_state.get("is_approved", False),
                     "attempt_count": final_state.get("attempt_count", 0),
                     "image_uri": image_url,
+                    "original_had_logos": final_state.get("original_had_logos"),  # CRITICAL: Preserve logo configuration for tweaks
                 },
             }
 
@@ -1382,6 +1476,17 @@ async def get_job_status_handler(job_id: str) -> dict:
         current_image_url = None
         if job.state:
             current_image_url = job.state.get("image_uri") or job.state.get("current_image_url")
+            # Debug logging to diagnose image URL issues
+            logger.info(
+                "job_state_debug",
+                request_id=request_id,
+                job_id=job_id,
+                has_state=bool(job.state),
+                state_keys=list(job.state.keys()) if job.state else [],
+                image_uri=job.state.get("image_uri", "NOT_FOUND")[:100] if job.state.get("image_uri") else "NOT_FOUND",
+                current_image_url_in_state=job.state.get("current_image_url", "NOT_FOUND")[:100] if job.state.get("current_image_url") else "NOT_FOUND",
+                extracted_url=current_image_url[:100] if current_image_url else "NONE",
+            )
 
         # Extract compliance scores from state
         compliance_scores = job.state.get("compliance_scores", []) if job.state else []
@@ -1581,6 +1686,43 @@ async def review_job_handler(
             # Override approval and mark as complete
             state["is_approved"] = True
             state["approval_override"] = True
+            state["shipped_at"] = datetime.now(timezone.utc).isoformat()
+            
+            # Extract compliance data for learning
+            compliance_scores = state.get("compliance_scores", [])
+            final_score = 0
+            violations_accepted = []
+            
+            if compliance_scores:
+                latest_audit = compliance_scores[-1]
+                final_score = latest_audit.get("overall_score", 0)
+                
+                # Extract violations user accepted by shipping
+                categories = latest_audit.get("categories", [])
+                for category in categories:
+                    if isinstance(category, dict):
+                        cat_violations = category.get("violations", [])
+                        for v in cat_violations:
+                            if isinstance(v, dict):
+                                violations_accepted.append({
+                                    "severity": v.get("severity", "medium"),
+                                    "category": category.get("name", "unknown"),
+                                    "description": v.get("description", ""),
+                                    "rule_id": v.get("rule_id", "")
+                                })
+            
+            # Log user approval decision for learning
+            logger.info(
+                "user_shipped_asset",
+                request_id=request_id,
+                job_id=job_id,
+                brand_id=job.brand_id,
+                compliance_score=final_score,
+                violations_accepted_count=len(violations_accepted),
+                violations_accepted=violations_accepted,
+                user_decision_context="ship_it_button"
+            )
+            
             await job_storage.update_job(job_id, {
                 "status": "completed",
                 "state": state
@@ -1589,7 +1731,8 @@ async def review_job_handler(
             logger.info(
                 "job_approved_by_user",
                 request_id=request_id,
-                job_id=job_id
+                job_id=job_id,
+                compliance_score=final_score
             )
 
             return {
@@ -1609,14 +1752,67 @@ async def review_job_handler(
                     request_id=request_id
                 )
 
-            # Store user's instruction for correction node
+            # Build a targeted correction prompt from the audit violations
+            # This ensures the model knows exactly what to fix
+            compliance_scores = state.get("compliance_scores", [])
+            violation_fixes = []
+            
+            if compliance_scores:
+                latest_audit = compliance_scores[-1]
+                categories = latest_audit.get("categories", [])
+                
+                for category in categories:
+                    if isinstance(category, dict):
+                        cat_violations = category.get("violations", [])
+                        for v in cat_violations:
+                            if isinstance(v, dict):
+                                severity = v.get("severity", "medium")
+                                # Only include critical and high severity violations
+                                if severity in ["critical", "high"]:
+                                    fix = v.get("fix_suggestion") or v.get("description", "")
+                                    if fix:
+                                        violation_fixes.append(f"- {fix}")
+            
+            # Build the correction prompt
+            if violation_fixes:
+                correction_prompt = (
+                    f"Looking at the image, please make these specific fixes:\n"
+                    f"{chr(10).join(violation_fixes)}\n\n"
+                    f"User's additional instruction: {tweak_instruction}\n\n"
+                    f"IMPORTANT: Edit the existing image, do not create a new one from scratch. "
+                    f"Keep all elements that passed compliance (composition, layout, colors that work) "
+                    f"and only fix the violations listed above."
+                )
+            else:
+                # No specific violations found, use user instruction directly
+                correction_prompt = (
+                    f"Looking at the image, please make this modification: {tweak_instruction}\n\n"
+                    f"IMPORTANT: Edit the existing image, do not create a new one from scratch. "
+                    f"Keep all elements that are working well and only change what's requested."
+                )
+            
+            # CRITICAL: Set the prompt to the correction prompt, not the original
+            # This ensures generate_node uses the correction instructions
+            state["prompt"] = correction_prompt
+            
+            # Preserve the previous image URL so generate_node can pass it to the model
+            # The image_uri contains the CDN URL of the image that needs to be fixed
+            previous_image = state.get("image_uri") or state.get("current_image_url")
+            if previous_image:
+                state["current_image_url"] = previous_image
+            
+            # Mark this as a tweak operation so generate_node knows to use multi-turn
+            state["is_tweak"] = True
             state["user_tweak_instruction"] = tweak_instruction
 
             logger.info(
                 "job_tweak_requested",
                 request_id=request_id,
                 job_id=job_id,
-                instruction=tweak_instruction
+                instruction=tweak_instruction,
+                violation_count=len(violation_fixes),
+                correction_prompt=correction_prompt[:200],
+                has_previous_image=bool(previous_image)
             )
 
         elif decision == "regenerate":
@@ -1677,9 +1873,16 @@ async def review_job_handler(
                 # Create workflow
                 workflow = create_generation_workflow()
                 
+                # Ensure brand_id is in state (required by workflow)
+                resume_state = {
+                    **state,
+                    "brand_id": job.brand_id,  # Add brand_id from job record
+                    "job_id": job_id,  # Ensure job_id is also present
+                }
+                
                 # Resume from existing state (preserved from needs_review)
                 # The workflow will route through correct -> generate -> audit
-                final_state = await workflow.ainvoke(state)
+                final_state = await workflow.ainvoke(resume_state)
                 
                 # Update job with final state
                 image_url = final_state.get("current_image_url") or final_state.get("image_uri")
@@ -1748,6 +1951,143 @@ async def review_job_handler(
         )
         raise StorageError(
             operation="review_job",
+            request_id=request_id,
+            details={"error": str(e)}
+        )
+
+
+async def save_asset_to_library_handler(
+    job_id: str,
+    asset_name: Optional[str] = None,
+) -> dict:
+    """
+    Save a completed job's image to the user's asset library.
+    
+    This is called automatically when a user clicks "Ship It" to save
+    the asset with metadata for future reference and learning.
+    
+    Args:
+        job_id: Job UUID
+        asset_name: Optional custom name for the asset
+        
+    Returns:
+        Dictionary with asset_id and save status
+        
+    Raises:
+        NotFoundError: If job does not exist
+        ValidationError: If job is not completed
+    """
+    from mobius.storage.jobs import JobStorage
+    from mobius.storage.database import get_supabase_client
+    
+    request_id = generate_request_id()
+    set_request_id(request_id)
+    
+    logger.info(
+        "save_asset_request",
+        request_id=request_id,
+        job_id=job_id,
+        asset_name=asset_name
+    )
+    
+    try:
+        # Load job from storage
+        job_storage = JobStorage()
+        job = await job_storage.get_job(job_id)
+        
+        if not job:
+            logger.warning("job_not_found", request_id=request_id, job_id=job_id)
+            raise NotFoundError(resource="job", resource_id=job_id, request_id=request_id)
+        
+        # Verify job is completed
+        if job.status != "completed":
+            logger.warning(
+                "job_not_completed",
+                request_id=request_id,
+                job_id=job_id,
+                current_status=job.status
+            )
+            raise ValidationError(
+                code="JOB_NOT_COMPLETED",
+                message=f"Job is not completed (current: {job.status})",
+                request_id=request_id,
+                details={"current_status": job.status}
+            )
+        
+        state = job.state or {}
+        image_url = state.get("image_uri")
+        
+        if not image_url:
+            raise ValidationError(
+                code="NO_IMAGE_URL",
+                message="Job has no image to save",
+                request_id=request_id
+            )
+        
+        # Extract metadata for asset library
+        compliance_scores = state.get("compliance_scores", [])
+        final_score = 0
+        prompt = state.get("prompt", "")
+        
+        if compliance_scores:
+            latest_audit = compliance_scores[-1]
+            final_score = latest_audit.get("overall_score", 0)
+        
+        # Generate asset name if not provided
+        if not asset_name:
+            asset_name = f"Asset {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
+        
+        # Save to assets table
+        supabase = get_supabase_client()
+        asset_id = str(uuid.uuid4())
+        
+        asset_data = {
+            "asset_id": asset_id,
+            "brand_id": job.brand_id,
+            "job_id": job_id,
+            "name": asset_name,
+            "prompt": prompt,
+            "image_url": image_url,
+            "compliance_score": final_score,
+            "metadata": {
+                "shipped_via": "ship_it_button",
+                "compliance_data": compliance_scores[-1] if compliance_scores else None,
+                "user_approved": True,
+                "approval_override": state.get("approval_override", False)
+            },
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        result = supabase.table("assets").insert(asset_data).execute()
+        
+        logger.info(
+            "asset_saved_to_library",
+            request_id=request_id,
+            job_id=job_id,
+            asset_id=asset_id,
+            brand_id=job.brand_id,
+            compliance_score=final_score,
+            asset_name=asset_name
+        )
+        
+        return {
+            "asset_id": asset_id,
+            "status": "saved",
+            "message": "Asset saved to library successfully",
+            "request_id": request_id
+        }
+        
+    except (NotFoundError, ValidationError):
+        raise
+    except Exception as e:
+        logger.error(
+            "save_asset_failed",
+            request_id=request_id,
+            job_id=job_id,
+            error=str(e)
+        )
+        raise StorageError(
+            operation="save_asset",
             request_id=request_id,
             details={"error": str(e)}
         )
@@ -1884,6 +2224,38 @@ async def tweak_completed_job_handler(
         state["user_decision"] = "tweak"
         state["needs_review"] = False
         state["is_approved"] = False  # Reset approval to go through workflow again
+        
+        # CRITICAL: Preserve logo configuration from original generation
+        # This ensures tweaks maintain the same logo setup as the original
+        if "original_had_logos" not in state:
+            # Infer from existing state if not already set
+            # Check if the original generation likely had logos based on brand guidelines
+            from mobius.storage.brands import BrandStorage
+            try:
+                brand_storage = BrandStorage()
+                brand = await brand_storage.get_brand(job.brand_id)
+                has_brand_logos = bool(brand and brand.guidelines and brand.guidelines.logos)
+                logo_count = len(brand.guidelines.logos) if has_brand_logos else 0
+                
+                state["original_had_logos"] = has_brand_logos
+                
+                logger.info(
+                    "inferred_original_had_logos_from_brand",
+                    job_id=job_id,
+                    brand_id=job.brand_id,
+                    has_brand=bool(brand),
+                    has_guidelines=bool(brand and brand.guidelines),
+                    has_logos=has_brand_logos,
+                    logo_count=logo_count,
+                    inferred_original_had_logos=has_brand_logos
+                )
+            except Exception as e:
+                logger.warning(
+                    "failed_to_infer_original_had_logos",
+                    job_id=job_id,
+                    error=str(e)
+                )
+                state["original_had_logos"] = False
         
         # CRITICAL: Increment attempt_count for multi-turn
         # This ensures continue_conversation=True in generate_node

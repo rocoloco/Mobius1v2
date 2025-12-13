@@ -12,6 +12,8 @@ export { Canvas } from './Canvas';
 export { ComplianceGauge } from './ComplianceGauge';
 export { ContextDeck } from './ContextDeck';
 export { TwinData } from './TwinData';
+export { BrandGraphModal } from './BrandGraphModal';
+export { Critic } from './Critic';
 
 // Lazy-loaded versions for code splitting
 export { LazyComplianceGauge } from './LazyComplianceGauge';
