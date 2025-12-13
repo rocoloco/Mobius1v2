@@ -4,7 +4,7 @@
  * Central export point for all custom hooks
  */
 
-export { useSupabaseRealtime } from './useSupabaseRealtime';
+export { useSupabaseRealtime, type ConnectionStatus } from './useSupabaseRealtime';
 export { useJobStatus } from './useJobStatus';
 export { useSessionHistory } from './useSessionHistory';
 export { useKeyboardNavigation } from './useKeyboardNavigation';

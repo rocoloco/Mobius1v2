@@ -114,6 +114,7 @@ export function DashboardProvider({
     status: jobStatus,
     error: jobError,
     isPolling,
+    connectionStatus: realtimeConnectionStatus,
   } = useJobStatus(jobId);
 
   const {
@@ -124,12 +125,17 @@ export function DashboardProvider({
     addVersion,
   } = useSessionHistory(sessionId);
 
-  // Derive connection status from polling state
+  // Derive connection status from realtime status and polling state
   const connectionStatus: 'connected' | 'disconnected' | 'connecting' = useMemo(() => {
-    if (isPolling) return 'connecting'; // Polling means realtime failed
-    if (jobId && jobStatus) return 'connected';
+    // If realtime is connected, we're connected
+    if (realtimeConnectionStatus === 'connected') return 'connected';
+    // If realtime is connecting, show connecting
+    if (realtimeConnectionStatus === 'connecting') return 'connecting';
+    // If polling is active, show as connecting (degraded mode)
+    if (isPolling && jobId) return 'connecting';
+    // Otherwise disconnected
     return 'disconnected';
-  }, [isPolling, jobId, jobStatus]);
+  }, [realtimeConnectionStatus, isPolling, jobId]);
 
   // Update error state when job error occurs
   useEffect(() => {
