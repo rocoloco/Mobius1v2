@@ -57,6 +57,23 @@ Mobius is an AI-powered brand governance platform that generates, audits, and re
 | **Logo Processing** | CairoSVG + Pillow | SVG rasterization + upscaling |
 | **Validation** | Pydantic v2 | Schema validation |
 | **Logging** | structlog | Structured logs |
+| **Frontend** | React + Vite + Tailwind | Luminous Dashboard |
+
+## Frontend: Luminous Dashboard
+
+"Luminous Structuralism" - The UI is the stage; the Brand Asset is the star.
+
+| Zone | Purpose |
+|------|---------|
+| **Director** | Multi-turn chat for AI interaction |
+| **Canvas** | Image viewport with compliance bounding boxes |
+| **Compliance Gauge** | Radial score chart + violation list |
+| **Context Deck** | Active brand constraints |
+| **Twin Data** | Detected colors/fonts inspector |
+
+**Stack**: React 19, Vite, Tailwind CSS, Framer Motion, VisX charts, Supabase Realtime
+
+See [frontend/README.md](frontend/README.md) for component docs and setup.
 
 ## System Architecture
 
