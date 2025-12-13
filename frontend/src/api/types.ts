@@ -159,6 +159,10 @@ export interface GenerateRequest {
   async_mode?: boolean;
   template_id?: string;
   webhook_url?: string;
+  // Multi-turn generation fields
+  session_id?: string;
+  previous_image_url?: string;
+  context?: string; // e.g., "social_linkedin"
 }
 
 export interface GenerateResponse {
@@ -166,6 +170,16 @@ export interface GenerateResponse {
   status: JobStatus;
   message: string;
   image_url?: string;
+}
+
+// Twin Data (for visual token inspection)
+export interface TwinData {
+  colors_detected: string[];
+  fonts_detected: Array<{
+    family: string;
+    weight: string;
+    allowed: boolean;
+  }>;
 }
 
 // Job Status
@@ -189,6 +203,7 @@ export interface JobStatusResponse {
   current_image_url?: string;
   compliance_score?: number;
   violations?: Violation[];
+  twin_data?: TwinData;
   error?: string;
   created_at: string;
   updated_at: string;
@@ -267,4 +282,19 @@ export interface Template {
 export interface TemplateListResponse {
   templates: Template[];
   total: number;
+}
+
+// Session History (for multi-turn generation)
+export interface Version {
+  attempt_id: number;
+  image_url: string;
+  thumb_url: string;
+  score: number;
+  timestamp: string;
+  prompt: string;
+}
+
+export interface SessionHistoryResponse {
+  session_id: string;
+  versions: Version[];
 }

@@ -3,6 +3,8 @@
  * Base URL configured from environment or defaults to Modal deployment
  */
 
+import { retryWithBackoff, type RetryOptions } from '../utils/retry';
+
 // Default to the Modal deployment URL, can be overridden
 const DEFAULT_API_BASE = 'https://rocoloco--mobius-v2-final-fastapi-app.modal.run/v1';
 
@@ -23,74 +25,104 @@ class APIClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    retryOptions?: RetryOptions
   ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const makeRequest = async (): Promise<T> => {
+      const url = `${this.baseUrl}${endpoint}`;
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({
-        detail: response.statusText,
-      }));
-      throw new Error(error.detail || `API Error: ${response.status}`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({
+          detail: response.statusText,
+        }));
+        const errorMessage = error.detail || `API Error: ${response.status}`;
+        const apiError = new Error(errorMessage);
+        
+        // Add response status to error for retry logic
+        (apiError as any).status = response.status;
+        throw apiError;
+      }
+
+      return response.json();
+    };
+
+    // Use retry logic if retryOptions provided
+    if (retryOptions) {
+      return retryWithBackoff(makeRequest, retryOptions);
     }
 
-    return response.json();
+    return makeRequest();
   }
 
   private async requestFormData<T>(
     endpoint: string,
-    formData: FormData
+    formData: FormData,
+    retryOptions?: RetryOptions
   ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const makeRequest = async (): Promise<T> => {
+      const url = `${this.baseUrl}${endpoint}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      body: formData,
-      // Don't set Content-Type - browser will set it with boundary for multipart/form-data
-    });
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+        // Don't set Content-Type - browser will set it with boundary for multipart/form-data
+      });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({
-        detail: response.statusText,
-      }));
-      throw new Error(error.detail || `API Error: ${response.status}`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({
+          detail: response.statusText,
+        }));
+        const errorMessage = error.detail || `API Error: ${response.status}`;
+        const apiError = new Error(errorMessage);
+        
+        // Add response status to error for retry logic
+        (apiError as any).status = response.status;
+        throw apiError;
+      }
+
+      return response.json();
+    };
+
+    // Use retry logic if retryOptions provided
+    if (retryOptions) {
+      return retryWithBackoff(makeRequest, retryOptions);
     }
 
-    return response.json();
+    return makeRequest();
   }
 
-  async get<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  async get<T>(endpoint: string, retryOptions?: RetryOptions): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET' }, retryOptions);
   }
 
-  async post<T>(endpoint: string, data?: unknown): Promise<T> {
+  async post<T>(endpoint: string, data?: unknown, retryOptions?: RetryOptions): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
-    });
+    }, retryOptions);
   }
 
-  async patch<T>(endpoint: string, data: unknown): Promise<T> {
+  async patch<T>(endpoint: string, data: unknown, retryOptions?: RetryOptions): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'PATCH',
       body: JSON.stringify(data),
-    });
+    }, retryOptions);
   }
 
-  async delete<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
+  async delete<T>(endpoint: string, retryOptions?: RetryOptions): Promise<T> {
+    return this.request<T>(endpoint, { method: 'DELETE' }, retryOptions);
   }
 
-  async postFormData<T>(endpoint: string, formData: FormData): Promise<T> {
-    return this.requestFormData<T>(endpoint, formData);
+  async postFormData<T>(endpoint: string, formData: FormData, retryOptions?: RetryOptions): Promise<T> {
+    return this.requestFormData<T>(endpoint, formData, retryOptions);
   }
 }
 

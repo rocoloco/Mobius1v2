@@ -1,10 +1,21 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '../client';
-import type { AssetListResponse } from '../types';
 import type { Asset } from '../../types';
 
+interface AssetListResponse {
+  assets: Array<{
+    asset_id: string;
+    brand_id: string;
+    name: string;
+    prompt: string;
+    image_url: string;
+    compliance_score: number;
+    created_at: string;
+  }>;
+}
+
 /**
- * Hook to fetch assets for the Vault
+ * Hook to fetch assets for a brand
  */
 export const useAssets = (brandId: string | null) => {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -22,17 +33,14 @@ export const useAssets = (brandId: string | null) => {
         setLoading(true);
         setError(null);
 
-        // Note: The backend may not have this exact endpoint yet
-        // This is based on the plan's API spec
         const response = await apiClient.get<AssetListResponse>(
-          `/assets?brand_id=${brandId}`
+          `/brands/${brandId}/assets`
         );
 
-        // Convert API assets to internal type
         const convertedAssets: Asset[] = response.assets.map(a => ({
           id: a.asset_id,
           brandId: a.brand_id,
-          name: `asset_${a.asset_id.slice(0, 8)}`,
+          name: a.name,
           prompt: a.prompt,
           imageUrl: a.image_url,
           complianceScore: a.compliance_score,
@@ -41,10 +49,8 @@ export const useAssets = (brandId: string | null) => {
 
         setAssets(convertedAssets);
       } catch (err) {
-        // If endpoint doesn't exist, fail gracefully
-        console.warn('Assets endpoint not available:', err);
-        setError(null);
-        setAssets([]);
+        setError(err instanceof Error ? err.message : 'Failed to fetch assets');
+        console.error('Error fetching assets:', err);
       } finally {
         setLoading(false);
       }

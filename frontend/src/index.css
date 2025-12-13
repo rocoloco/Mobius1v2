@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-/* Industrial Design System - Mechanical Keyframes */
+/* Animation Keyframes */
 @keyframes mechanicalPress {
   0% {
     transform: translateY(0);
@@ -94,7 +94,7 @@ body {
   color: white;
 }
 
-/* Custom scrollbar for the Industrial aesthetic */
+/* Custom scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -114,7 +114,7 @@ body {
   background: rgba(45, 52, 54, 0.5);
 }
 
-/* Enhanced focus states for industrial accessibility */
+/* Enhanced focus states for accessibility */
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
@@ -143,7 +143,7 @@ input:focus, textarea:focus, select:focus {
   outline: none;
 }
 
-/* Industrial Font Hierarchy */
+/* Font Hierarchy */
 .font-primary {
   font-family: 'Space Grotesk', system-ui, sans-serif;
 }
@@ -156,7 +156,7 @@ input:focus, textarea:focus, select:focus {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Typography Scale for Industrial Design */
+/* Typography Scale */
 .text-display {
   font-family: 'Space Grotesk', system-ui, sans-serif;
   font-weight: 700;
@@ -206,11 +206,7 @@ input:focus, textarea:focus, select:focus {
   font-weight: 400;
 }
 
-/* Industrial component base styles */
-.industrial-component {
-  position: relative;
-  background-color: #e0e5ec;
-}
+/* Component base styles */
 
 /* Micro-texture utility classes for premium soft plastic finish */
 .micro-texture {
@@ -312,7 +308,7 @@ input:focus, textarea:focus, select:focus {
     0 0 6px rgba(255, 255, 255, 0.2);
 }
 
-/* Industrial Viewport Enhancements */
+/* Viewport Enhancements */
 .technical-grid {
   background-image: 
     linear-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px),
@@ -408,7 +404,7 @@ input:focus, textarea:focus, select:focus {
   pointer-events: none;
 }
 
-/* Industrial standby state */
+/* Standby state */
 .system-standby {
   font-family: 'JetBrains Mono', 'Share Tech Mono', monospace;
   letter-spacing: 0.2em;
@@ -602,12 +598,10 @@ input:focus, textarea:focus, select:focus {
 
 /* High Contrast Mode for Accessibility */
 .high-contrast {
-  --industrial-surface-primary: #ffffff;
-  --industrial-surface-secondary: #f8f9fa;
-  --industrial-text-primary: #000000;
-  --industrial-text-secondary: #333333;
-  --industrial-shadow-light: #000000;
-  --industrial-shadow-dark: #000000;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f8f9fa;
+  --text-primary: #000000;
+  --text-secondary: #333333;
 }
 
 .high-contrast * {
@@ -646,9 +640,9 @@ input:focus, textarea:focus, select:focus {
     -12px -12px 24px rgba(255, 255, 255, 0.7);
 }
 
-/* Interactive card hover effects - matches elevated card exactly with premium inner glow */
+/* Interactive card hover effects */
 .interactive-card-hover {
-  background-color: #e0e5ec !important; /* Industrial surface color */
+  background-color: #e0e5ec !important;
   transition: all 0.2s ease-out !important;
   cursor: pointer !important;
   /* Match elevated card's deep raised shadows with premium inner glow */
@@ -737,11 +731,6 @@ input:disabled {
   background: linear-gradient(to bottom, #f97316, #ef4444) !important;
 }
 
-.button-industrial {
-  color: #ea580c !important;
-  border-color: rgba(234, 88, 12, 0.6) !important;
-}
-
 .button-outline {
   background: transparent !important;
   border-width: 2px !important;
@@ -779,7 +768,7 @@ input:disabled {
   }
 }
 
-/* Improved button focus states for industrial theme */
+/* Improved button focus states */
 button:focus-visible,
 [role="button"]:focus-visible {
   outline: 3px solid #ff4757;
@@ -802,6 +791,24 @@ button:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+/* Luminous Design System - Gradient Animation */
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 3s ease infinite;
+}
+
 /* Custom scrollbar for Generation History */
 .custom-scrollbar {
   scrollbar-width: thin;

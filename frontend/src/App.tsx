@@ -1,110 +1,70 @@
-import React, { useState } from 'react';
+import { Component } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { BrandProvider, useBrandContext } from './context';
-import { Header, Vault } from './components/layout';
-import { Workbench, Onboarding } from './views';
-import { PolishedIndustrialDemo } from './design-system/PolishedDemo';
+import { Dashboard } from './views';
 
-type View = 'workbench' | 'onboard' | 'demo';
+// Error Boundary to catch runtime errors
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('App Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-red-900 text-white p-8">
+          <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>
+          <pre className="bg-black/50 p-4 rounded overflow-auto">
+            {this.state.error?.message}
+            {'\n\n'}
+            {this.state.error?.stack}
+          </pre>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-white text-red-900 rounded"
+          >
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const AppContent: React.FC = () => {
-  const { brands, activeBrand, assets, setActiveBrandId, addBrand } = useBrandContext();
-
-  const [isVaultOpen, setIsVaultOpen] = useState(false);
-  const [view, setView] = useState<View>('workbench'); // Start with main workbench
-
-  // Show demo view
-  if (view === 'demo') {
-    return (
-      <div className="relative">
-        <div className="absolute top-4 right-4 z-50 flex gap-2">
-          <button
-            onClick={() => setView('workbench')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Back to Workbench
-          </button>
-          <button
-            onClick={() => setView('onboard')}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-          >
-            Onboarding
-          </button>
-        </div>
-        <PolishedIndustrialDemo />
-      </div>
-    );
-  }
-
-  // First-time user flow: if no brands, show onboarding
-  const shouldShowOnboarding = brands.length === 0 || view === 'onboard';
-
-  if (shouldShowOnboarding) {
-    return (
-      <Onboarding
-        onComplete={(brandId) => {
-          // In real implementation, this would add the new brand
-          addBrand({
-            id: brandId,
-            name: 'New Brand',
-            archetype: 'THE CREATOR',
-            color: '#6c5ce7',
-            voiceVectors: {
-              formal: 0.5,
-              witty: 0.5,
-              technical: 0.5,
-              urgent: 0.5,
-            },
-          });
-          setView('workbench');
-        }}
-        onCancel={brands.length > 0 ? () => setView('workbench') : undefined}
-      />
-    );
-  }
+  const { activeBrand } = useBrandContext();
 
   return (
-    <div className="h-screen w-full bg-background text-ink font-sans overflow-hidden flex flex-col relative selection:bg-accent selection:text-white">
-      {/* HEADER */}
-      <Header
-        activeBrand={activeBrand}
-        allBrands={brands}
-        onSelectBrand={setActiveBrandId}
-        onToggleVault={() => setIsVaultOpen(!isVaultOpen)}
-        onAddBrand={() => setView('onboard')}
-        onShowDemo={() => setView('demo')}
-      />
-
-      {/* MAIN WORKSPACE */}
-      <div className="flex-1 relative flex overflow-hidden">
-        {/* The Workbench (Canvas) */}
-        <div
-          className={`flex-1 transition-all duration-500 ${
-            isVaultOpen ? 'mr-96' : 'mr-0'
-          }`}
-        >
-          <Workbench activeBrand={activeBrand} />
-        </div>
-
-        {/* THE VAULT (Slide-out Gallery) */}
-        <Vault
-          isOpen={isVaultOpen}
-          onClose={() => setIsVaultOpen(false)}
-          assets={assets}
-          onAssetClick={(asset) => {
-            console.log('Asset clicked:', asset);
-            // In real implementation, this could load the asset into the canvas
-          }}
-        />
-      </div>
-    </div>
+    <Dashboard
+      brandId={activeBrand?.id || 'demo-brand'}
+      onSettingsClick={() => console.log('Settings clicked')}
+    />
   );
 };
 
 function App() {
   return (
-    <BrandProvider>
-      <AppContent />
-    </BrandProvider>
+    <ErrorBoundary>
+      <BrandProvider>
+        <AppContent />
+      </BrandProvider>
+    </ErrorBoundary>
   );
 }
 

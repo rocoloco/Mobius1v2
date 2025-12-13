@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
  * Playwright Configuration for Industrial Design System Visual Testing
  */
 export default defineConfig({
-  testDir: './tests/visual',
+  testDir: './tests',
   
   /* Run tests in files in parallel */
   fullyParallel: true,
@@ -41,17 +41,29 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
+    // Integration tests - run on Chromium only for speed
     {
-      name: 'chromium',
+      name: 'integration',
+      testDir: './tests/integration',
       use: { 
         ...devices['Desktop Chrome'],
-        // Ensure consistent rendering for visual tests
+        viewport: { width: 1280, height: 720 },
+      },
+    },
+    
+    // Visual tests - run on multiple browsers
+    {
+      name: 'visual-chromium',
+      testDir: './tests/visual',
+      use: { 
+        ...devices['Desktop Chrome'],
         viewport: { width: 1280, height: 720 },
       },
     },
     
     {
-      name: 'firefox',
+      name: 'visual-firefox',
+      testDir: './tests/visual',
       use: { 
         ...devices['Desktop Firefox'],
         viewport: { width: 1280, height: 720 },
@@ -59,23 +71,26 @@ export default defineConfig({
     },
     
     {
-      name: 'webkit',
+      name: 'visual-webkit',
+      testDir: './tests/visual',
       use: { 
         ...devices['Desktop Safari'],
         viewport: { width: 1280, height: 720 },
       },
     },
 
-    /* Test against mobile viewports. */
+    /* Test against mobile viewports for visual tests */
     {
-      name: 'Mobile Chrome',
+      name: 'visual-mobile-chrome',
+      testDir: './tests/visual',
       use: { 
         ...devices['Pixel 5'],
       },
     },
     
     {
-      name: 'Mobile Safari',
+      name: 'visual-mobile-safari',
+      testDir: './tests/visual',
       use: { 
         ...devices['iPhone 12'],
       },
