@@ -45,11 +45,17 @@ function DashboardSkeleton() {
         </div>
       </div>
       
-      {/* Grid skeleton */}
-      <div className="p-4 grid grid-cols-4 grid-rows-3 gap-4" style={{ height: 'calc(100vh - 64px)' }}>
-        {/* Director zone */}
-        <GlassPanel className="col-span-1 row-span-2">
+      {/* Grid skeleton - 4 zone layout */}
+      <div className="p-6 grid grid-cols-3 grid-rows-2 gap-6" style={{ height: 'calc(100vh - 64px)' }}>
+        {/* Director zone - full height left column */}
+        <GlassPanel className="row-span-2">
           <div className="h-full flex flex-col p-4 gap-4">
+            {/* Brand graph indicator skeleton */}
+            <div className="flex items-center gap-2 pb-3 border-b border-white/10">
+              <div className="w-4 h-4 rounded bg-white/5 animate-pulse" />
+              <div className="w-24 h-3 rounded bg-white/5 animate-pulse" />
+              <div className="w-16 h-3 rounded-full bg-white/5 animate-pulse" />
+            </div>
             <div className="flex-1 space-y-3">
               <div className="w-3/4 h-4 rounded bg-white/5 animate-pulse" />
               <div className="w-1/2 h-4 rounded bg-white/5 animate-pulse" />
@@ -58,31 +64,22 @@ function DashboardSkeleton() {
           </div>
         </GlassPanel>
         
-        {/* Canvas zone */}
-        <GlassPanel className="col-span-2 row-span-3">
+        {/* Canvas zone - center, full height */}
+        <GlassPanel className="row-span-2">
           <div className="h-full flex items-center justify-center">
             <div className="w-32 h-32 rounded-lg bg-white/5 animate-pulse" />
           </div>
         </GlassPanel>
         
-        {/* Gauge zone */}
-        <GlassPanel className="col-span-1 row-span-1">
+        {/* Gauge zone - top right */}
+        <GlassPanel>
           <div className="h-full flex items-center justify-center p-4">
             <div className="w-24 h-24 rounded-full bg-white/5 animate-pulse" />
           </div>
         </GlassPanel>
         
-        {/* Context zone */}
-        <GlassPanel className="col-span-1 row-span-1">
-          <div className="h-full p-4 space-y-2">
-            <div className="w-full h-8 rounded-full bg-white/5 animate-pulse" />
-            <div className="w-full h-8 rounded-full bg-white/5 animate-pulse" />
-            <div className="w-full h-8 rounded-full bg-white/5 animate-pulse" />
-          </div>
-        </GlassPanel>
-        
-        {/* Twin zone */}
-        <GlassPanel className="col-span-1 row-span-2">
+        {/* Twin zone - bottom right */}
+        <GlassPanel>
           <div className="h-full p-4 space-y-3">
             <div className="w-1/2 h-4 rounded bg-white/5 animate-pulse" />
             <div className="flex gap-2">

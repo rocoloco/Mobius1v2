@@ -14,7 +14,6 @@ import { BentoGrid } from '../luminous/layouts/BentoGrid';
 import { Director } from '../luminous/components/organisms/Director';
 import { Canvas } from '../luminous/components/organisms/Canvas';
 import { ComplianceGauge } from '../luminous/components/organisms/ComplianceGauge';
-import { ContextDeck } from '../luminous/components/organisms/ContextDeck';
 import { TwinData } from '../luminous/components/organisms/TwinData';
 import { AriaLiveRegions } from '../luminous/components/atoms/AriaLiveRegions';
 import { apiClient } from '../api/client';
@@ -132,12 +131,6 @@ function DashboardContent({ onSettingsClick }: DashboardContentProps) {
     }));
   }, [violations]);
 
-  // Extract active constraints from violations for ContextDeck highlighting
-  const activeConstraints = useMemo(() => {
-    // Extract constraint IDs from violations that should highlight constraint cards
-    return violations.map((_, index) => `violation-${index}`);
-  }, [violations]);
-
   // Prepare TwinData props - no fallback data to prevent layout shift
   const detectedColors = useMemo(() => {
     return twinData?.colors_detected || [];
@@ -229,6 +222,17 @@ function DashboardContent({ onSettingsClick }: DashboardContentProps) {
             error={error}
             onRetry={retryGeneration}
             onClearError={clearError}
+            brandGraph={brandGraph ? {
+              name: brandGraph.name,
+              ruleCount: (brandGraph.identity_core?.negative_constraints?.length || 0) + 
+                         (brandGraph.contextual_rules?.length || 0),
+              colorCount: brandGraph.visual_tokens?.colors?.length || 0,
+              archetype: brandGraph.identity_core?.archetype,
+            } : null}
+            onBrandGraphClick={() => {
+              // TODO: Open brand graph detail modal
+              console.log('Brand graph clicked', brandGraph);
+            }}
           />
         }
         canvas={
@@ -249,14 +253,6 @@ function DashboardContent({ onSettingsClick }: DashboardContentProps) {
             score={complianceScore ?? 0}
             violations={gaugeViolations}
             onViolationClick={handleViolationClick}
-          />
-        }
-        context={
-          <ContextDeck
-            brandId={brandId}
-            activeConstraints={activeConstraints}
-            brandGraph={brandGraph}
-            loading={false}
           />
         }
         twin={

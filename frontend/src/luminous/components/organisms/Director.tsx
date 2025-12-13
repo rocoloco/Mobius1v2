@@ -1,10 +1,17 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
-import { Send, Zap, AlertCircle, RotateCcw } from 'lucide-react';
+import { Send, Zap, AlertCircle, RotateCcw, Sparkles } from 'lucide-react';
 import { ChatMessage } from '../molecules/ChatMessage';
 import { GradientText } from '../atoms/GradientText';
 import { GlassPanel } from '../atoms/GlassPanel';
 import { luminousTokens } from '../../tokens';
 import { useDebouncedCallback } from '../../../hooks/useDebounce';
+
+interface BrandGraphSummary {
+  name: string;
+  ruleCount: number;
+  colorCount: number;
+  archetype?: string;
+}
 
 interface DirectorProps {
   sessionId: string;
@@ -18,6 +25,10 @@ interface DirectorProps {
   error?: Error | null;
   onRetry?: () => void;
   onClearError?: () => void;
+  /** Brand Graph summary for context indicator */
+  brandGraph?: BrandGraphSummary | null;
+  /** Callback when Brand Graph indicator is clicked */
+  onBrandGraphClick?: () => void;
 }
 
 interface QuickAction {
@@ -58,6 +69,8 @@ const MAX_CHARACTERS = 1000;
  * @param onSubmit - Callback when user submits a prompt
  * @param isGenerating - Whether AI is currently processing
  * @param messages - Chat message history (optional)
+ * @param brandGraph - Brand Graph summary for context indicator
+ * @param onBrandGraphClick - Callback when Brand Graph indicator is clicked
  */
 export const Director = memo(function Director({
   sessionId: _sessionId,
@@ -67,6 +80,8 @@ export const Director = memo(function Director({
   error = null,
   onRetry,
   onClearError,
+  brandGraph = null,
+  onBrandGraphClick,
 }: DirectorProps) {
   // sessionId available as _sessionId for future use
   const [inputValue, setInputValue] = useState('');
@@ -148,6 +163,45 @@ export const Director = memo(function Director({
       data-testid="director"
     >
       <div className="h-full flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
+      {/* Brand Graph Indicator */}
+      {brandGraph && (
+        <button
+          onClick={onBrandGraphClick}
+          className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-white/10 hover:bg-white/5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:ring-inset"
+          data-testid="brand-graph-indicator"
+          aria-label={`${brandGraph.name} Brand Graph with ${brandGraph.ruleCount} rules. Click for details.`}
+        >
+          <Sparkles 
+            size={14} 
+            className={isGenerating ? 'animate-pulse' : ''}
+            style={{ color: luminousTokens.colors.accent.purple }}
+          />
+          <span 
+            className="text-xs font-medium truncate"
+            style={{ color: luminousTokens.colors.text.high }}
+          >
+            {brandGraph.name}
+          </span>
+          <span 
+            className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
+            style={{ 
+              color: luminousTokens.colors.text.muted,
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            }}
+          >
+            {brandGraph.ruleCount} rules · {brandGraph.colorCount} colors
+          </span>
+          {brandGraph.archetype && (
+            <span 
+              className="text-[10px] ml-auto hidden sm:inline"
+              style={{ color: luminousTokens.colors.text.muted }}
+            >
+              {brandGraph.archetype}
+            </span>
+          )}
+        </button>
+      )}
+
       {/* Chat History - Scrollable */}
       <div 
         ref={chatContainerRef}
