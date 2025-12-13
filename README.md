@@ -1,4 +1,34 @@
-# Mobius Brand Governance Engine - Architecture
+# Mobius Brand Governance Engine
+
+AI-powered brand governance platform that generates, audits, and refines brand-compliant visual assets.
+
+## Quick Start
+
+### Backend (Modal + Supabase)
+```bash
+# Install dependencies
+pip install -e .
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY, NEO4J credentials
+
+# Deploy to Modal
+modal deploy src/mobius/api/app_consolidated.py
+```
+
+### Frontend (Luminous Dashboard)
+```bash
+cd frontend
+npm install
+cp .env.example .env
+# Edit .env with VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+npm run dev
+```
+
+See [frontend/README.md](frontend/README.md) for detailed frontend documentation.
+
+---
 
 ## Overview
 
